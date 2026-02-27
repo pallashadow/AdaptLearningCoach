@@ -4,7 +4,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from lib.agentic.config import AgentState
+from lib.agentic.nodes.auto_answer_node import auto_answer_node
 from lib.agentic.nodes.entry_node import entry_llm_node
 from lib.agentic.nodes.question_node import question_node
 from lib.agentic.nodes.ref_node import ref_node
@@ -26,6 +27,9 @@ def _now_iso() -> str:
 class StartDialogRequest(BaseModel):
     question: str = Field(..., min_length=1, description="Learning goal or interview goal.")
     max_round: int = Field(default=5, ge=1, le=20)
+    auto_answer_enabled: bool = Field(default=False)
+    auto_answer_proficiency: float = Field(default=70.0, ge=0.0, le=100.0)
+    question_mode: Literal["open", "choice"] = Field(default="choice")
 
 
 class StartDialogResponse(BaseModel):
@@ -39,7 +43,7 @@ class StartDialogResponse(BaseModel):
 
 class AnswerRequest(BaseModel):
     dialog_id: str = Field(..., min_length=1)
-    user_answer: str = Field(..., min_length=1)
+    user_answer: str = Field(default="")
 
 
 class AnswerResponse(BaseModel):
@@ -156,7 +160,10 @@ app.add_middleware(
 
 
 def _snapshot_from_record(dialog_id: str, record: dict[str, Any]) -> DialogSnapshot:
-    state = record.get("state", {})
+    raw_state = record.get("state", {})
+    state = dict(raw_state) if isinstance(raw_state, dict) else {}
+    # Keep correctness data server-side so client snapshots cannot leak answers.
+    state.pop("current_correct_option", None)
     current_round = int(state.get("current_round", 0) or 0)
     max_round = int(state.get("max_round", 0) or 0)
     finished = current_round >= max_round and max_round > 0
@@ -180,6 +187,9 @@ async def start_dialog(payload: StartDialogRequest) -> StartDialogResponse:
     initial_state: AgentState = {
         "question": payload.question.strip(),
         "max_round": payload.max_round,
+        "auto_answer_enabled": payload.auto_answer_enabled,
+        "auto_answer_proficiency": payload.auto_answer_proficiency,
+        "question_mode": payload.question_mode,
         "current_round": 0,
     }
 
@@ -216,7 +226,14 @@ async def submit_answer(payload: AnswerRequest) -> AnswerResponse:
     if current_round >= max_round:
         raise HTTPException(status_code=400, detail="dialog already finished")
 
-    state["user_answer"] = payload.user_answer.strip()
+    auto_answer_enabled = bool(state.get("auto_answer_enabled", False))
+    if auto_answer_enabled:
+        state = await auto_answer_node(state)
+    else:
+        user_answer = payload.user_answer.strip()
+        if not user_answer:
+            raise HTTPException(status_code=400, detail="user_answer is required when auto_answer_enabled=false")
+        state["user_answer"] = user_answer
     state = await ref_node(state)
 
     current_round = int(state.get("current_round", 0) or 0)

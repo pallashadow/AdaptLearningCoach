@@ -29,13 +29,27 @@ class AgentState(TypedDict, total=False):
     # Main graph state
     knowledge_graph_root: KnowledgeGraphRoot
     max_round: int
+    auto_answer_enabled: bool
+    auto_answer_proficiency: float
+    question_mode: str
     current_round: int
     current_concept: str
     current_question: str
+    current_question_type: str
+    current_options: list[str]
+    current_correct_option: str
     current_feedback: str
     current_score: float
+    current_score_raw: float
     last_ground_truth: str
     query_type: str
+    followup_threshold: float
+    is_followup: bool
+    parent_question: str
+    parent_score_raw: float
+    followup_effective_score: float
+    pending_sub_questions: list[str]
+    sub_qa_history: list[QAItem]
 
     # Generic response fields
     answer: str

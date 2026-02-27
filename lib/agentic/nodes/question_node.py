@@ -6,6 +6,7 @@ from lib.agentic.config import AgentState
 from lib.llm.litellm_api import call_llm_with_tools
 
 logger = logging.getLogger(__name__)
+OPTION_LABELS = ("A", "B", "C", "D")
 
 
 def _normalize_score(raw: Any) -> float:
@@ -22,7 +23,7 @@ def _concept_sort_key(concept_item: dict[str, Any]) -> tuple[float, int]:
     return (familiarity, question_count)
 
 
-def _build_question_tools() -> list[dict[str, Any]]:
+def _build_open_question_tools() -> list[dict[str, Any]]:
     return [
         {
             "type": "function",
@@ -41,7 +42,40 @@ def _build_question_tools() -> list[dict[str, Any]]:
     ]
 
 
-def _build_question_prompt(concept_name: str, qa_history: list[dict[str, Any]]) -> str:
+def _build_choice_question_tools() -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": "generate_multiple_choice_question",
+                "description": "Generate one multiple-choice diagnostic question for the selected concept.",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "question": {"type": "string"},
+                        "options": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "minItems": 4,
+                            "maxItems": 4,
+                        },
+                        "correct_option": {
+                            "type": "string",
+                            "enum": ["A", "B", "C", "D"],
+                        },
+                    },
+                    "required": ["question", "options", "correct_option"],
+                },
+            },
+        }
+    ]
+
+
+def _build_question_prompt(
+    concept_name: str,
+    qa_history: list[dict[str, Any]],
+    question_mode: str,
+) -> str:
     history_text = json.dumps(qa_history[-5:], ensure_ascii=False, indent=2)
     question_index = min(len(qa_history) + 1, 5)
     return (
@@ -50,12 +84,66 @@ def _build_question_prompt(concept_name: str, qa_history: list[dict[str, Any]]) 
         f"This is diagnostic question #{question_index} out of 5 for this concept.\n"
         "Goal: across 5 questions, cover all major aspects of the concept (definition, intuition, formula/mechanism, example/application, edge cases/comparison).\n"
         "Use past Q/A to avoid duplicates; pick an uncovered or weakly covered aspect.\n"
-        "The question should be specific, answerable in 2-6 sentences, and suitable for scoring in [0,100].\n\n"
+        f"Question mode: {question_mode}\n"
+        "If mode is open: question should be specific, answerable in 2-6 sentences, and suitable for scoring in [0,100].\n"
+        "If mode is choice: provide one clear stem and 4 options with exactly one correct option.\n\n"
         f"Past QA history (latest up to 5):\n{history_text}"
     )
 
 
+def _normalize_sub_questions(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        text = str(item).strip()
+        if not text:
+            continue
+        key = text.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(text)
+    return normalized
+
+
+def _normalize_choice_options(raw: Any) -> list[str]:
+    if not isinstance(raw, list):
+        return []
+    normalized = [str(item).strip() for item in raw[:4] if str(item).strip()]
+    if len(normalized) != 4:
+        return []
+    return normalized
+
+
+def _normalize_correct_option(raw: Any) -> str:
+    option = str(raw or "").strip().upper()
+    if option in OPTION_LABELS:
+        return option
+    return "A"
+
+
+def _format_choice_question(question: str, options: list[str]) -> str:
+    rendered_options = [f"{label}. {text}" for label, text in zip(OPTION_LABELS, options)]
+    return f"{question}\n" + "\n".join(rendered_options)
+
+
 async def question_node(state: AgentState) -> AgentState:
+    pending_sub_questions = _normalize_sub_questions(state.get("pending_sub_questions", []))
+    if pending_sub_questions:
+        next_sub_question = pending_sub_questions[0]
+        return {
+            **state,
+            "current_question": next_sub_question,
+            "pending_sub_questions": pending_sub_questions[1:],
+            "is_followup": True,
+            "current_question_type": "open",
+            "current_options": [],
+            "current_correct_option": "",
+            "answer": next_sub_question,
+        }
+
     root = state.get("knowledge_graph_root") or {}
     concepts = root.get("concepts", [])
     if not concepts:
@@ -73,22 +161,61 @@ async def question_node(state: AgentState) -> AgentState:
     if not isinstance(qa_history, list):
         qa_history = []
 
-    prompt = _build_question_prompt(concept_name, qa_history)
+    question_mode = str(state.get("question_mode", "choice") or "choice").strip().lower()
+    if question_mode not in {"open", "choice"}:
+        question_mode = "choice"
 
-    current_question = f"Please explain {concept_name} and give one example."
-    try:
-        response = await call_llm_with_tools(
-            prompt=prompt,
-            tools=_build_question_tools(),
-            model_name="gpt",
-            tool_choice="required",
+    prompt = _build_question_prompt(concept_name, qa_history, question_mode)
+
+    if question_mode == "choice":
+        current_options = [
+            f"{concept_name} is mainly a debugging tool",
+            f"{concept_name} is unrelated to machine learning",
+            f"{concept_name} is a core concept that impacts model behavior",
+            f"{concept_name} means deleting all training data",
+        ]
+        current_question = _format_choice_question(
+            f"Which statement is most accurate about {concept_name}?",
+            current_options,
         )
-        if response.get("tool_calls"):
-            arguments = response["tool_calls"][0]["function"]["arguments"]
-            payload = json.loads(arguments)
-            generated = str(payload.get("question", "")).strip()
-            if generated:
-                current_question = generated
+        current_question_type = "choice"
+        current_correct_option = "C"
+    else:
+        current_question = f"Please explain {concept_name} and give one example."
+        current_question_type = "open"
+        current_options = []
+        current_correct_option = ""
+    try:
+        if question_mode == "choice":
+            response = await call_llm_with_tools(
+                prompt=prompt,
+                tools=_build_choice_question_tools(),
+                model_name="gpt",
+                tool_choice="required",
+            )
+            if response.get("tool_calls"):
+                arguments = response["tool_calls"][0]["function"]["arguments"]
+                payload = json.loads(arguments)
+                generated_question = str(payload.get("question", "")).strip()
+                generated_options = _normalize_choice_options(payload.get("options", []))
+                if generated_question and generated_options:
+                    current_question = _format_choice_question(generated_question, generated_options)
+                    current_question_type = "choice"
+                    current_options = generated_options
+                    current_correct_option = _normalize_correct_option(payload.get("correct_option"))
+        else:
+            response = await call_llm_with_tools(
+                prompt=prompt,
+                tools=_build_open_question_tools(),
+                model_name="gpt",
+                tool_choice="required",
+            )
+            if response.get("tool_calls"):
+                arguments = response["tool_calls"][0]["function"]["arguments"]
+                payload = json.loads(arguments)
+                generated = str(payload.get("question", "")).strip()
+                if generated:
+                    current_question = generated
     except Exception as exc:
         logger.warning(f"question generation failed: {exc}")
 
@@ -96,5 +223,10 @@ async def question_node(state: AgentState) -> AgentState:
         **state,
         "current_concept": concept_name,
         "current_question": current_question,
+        "current_question_type": current_question_type,
+        "current_options": current_options,
+        "current_correct_option": current_correct_option,
+        "is_followup": False,
+        "parent_question": "",
         "answer": current_question,
     }

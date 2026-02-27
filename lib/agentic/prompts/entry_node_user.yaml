@@ -1,0 +1,8 @@
+version: "1.0.0"
+id: "entry_node_user"
+role: "user"
+template: |
+  User input:
+  {question}
+
+  Generate the soft-knowledge-graph root node JSON now.

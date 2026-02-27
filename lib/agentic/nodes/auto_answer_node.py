@@ -6,6 +6,7 @@ from lib.agentic.config import AgentState
 from lib.llm.litellm_api import call_llm_with_tools
 
 logger = logging.getLogger(__name__)
+OPTION_LABELS = ("A", "B", "C", "D")
 
 
 def _build_auto_answer_tools() -> list[dict[str, Any]]:
@@ -27,7 +28,12 @@ def _build_auto_answer_tools() -> list[dict[str, Any]]:
     ]
 
 
-def _build_auto_answer_prompt(concept: str, question: str, qa_history: list[dict[str, Any]]) -> str:
+def _build_auto_answer_prompt(
+    concept: str,
+    question: str,
+    qa_history: list[dict[str, Any]],
+    proficiency: float,
+) -> str:
     history_text = json.dumps(qa_history[-3:], ensure_ascii=False, indent=2)
     return (
         "You are simulating a learner answering a tutor question.\n"
@@ -36,6 +42,12 @@ def _build_auto_answer_prompt(concept: str, question: str, qa_history: list[dict
         f"{concept}\n"
         "Current question:\n"
         f"{question}\n"
+        f"Learner proficiency: {proficiency:.0f}/100.\n"
+        "If proficiency is low, include realistic imperfections:\n"
+        "- partial understanding, slight confusion, or a small mistake\n"
+        "- still keep the answer plausible and related to the concept\n"
+        "- do NOT refuse the question\n"
+        "If proficiency is high, answer should be more accurate and complete.\n"
         "Past attempts (latest up to 3):\n"
         f"{history_text}\n"
         "Try to improve over previous weak points when possible."
@@ -51,6 +63,19 @@ async def auto_answer_node(state: AgentState) -> AgentState:
             "user_answer": "",
             "answer": "Missing current_question.",
         }
+    current_question_type = str(state.get("current_question_type", "open") or "open").strip().lower()
+    if current_question_type == "choice":
+        auto_answer_proficiency = float(state.get("auto_answer_proficiency", 70.0) or 70.0)
+        auto_answer_proficiency = max(0.0, min(100.0, auto_answer_proficiency))
+        correct_option = str(state.get("current_correct_option", "") or "").strip().upper()
+        if correct_option not in OPTION_LABELS:
+            correct_option = "A"
+        auto_answer = correct_option if auto_answer_proficiency >= 50 else "B" if correct_option != "B" else "C"
+        return {
+            **state,
+            "user_answer": auto_answer,
+            "answer": auto_answer,
+        }
 
     root = state.get("knowledge_graph_root") or {}
     concepts = root.get("concepts", [])
@@ -65,10 +90,18 @@ async def auto_answer_node(state: AgentState) -> AgentState:
                     qa_history = [entry for entry in candidate if isinstance(entry, dict)]
                 break
 
-    auto_answer = "I need more context, but I will try to explain the core idea and provide one example."
+    auto_answer_proficiency = float(state.get("auto_answer_proficiency", 70.0) or 70.0)
+    auto_answer_proficiency = max(0.0, min(100.0, auto_answer_proficiency))
+
+    auto_answer = "I may be missing some details, but I will explain the core idea with one practical example."
     try:
         response = await call_llm_with_tools(
-            prompt=_build_auto_answer_prompt(current_concept, current_question, qa_history),
+            prompt=_build_auto_answer_prompt(
+                current_concept,
+                current_question,
+                qa_history,
+                auto_answer_proficiency,
+            ),
             tools=_build_auto_answer_tools(),
             model_name="gpt",
             tool_choice="required",

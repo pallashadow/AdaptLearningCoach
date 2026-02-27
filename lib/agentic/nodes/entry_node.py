@@ -120,7 +120,7 @@ def _normalize_root_node(raw: dict[str, Any]) -> dict[str, Any]:
 async def entry_llm_node(state: AgentState) -> AgentState:
     """
     Build the root node for a soft knowledge graph from user's course/interview plan.
-    Output shape follows PROPOSAL.md item 1:
+    Output shape follows docs/PROPOSAL.md item 1:
     { concepts: [{ concept, familiarity, posterior_question_count, qa_history }], reasoning_pattern }
     """
     existing_root = state.get("knowledge_graph_root")

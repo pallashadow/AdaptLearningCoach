@@ -72,8 +72,13 @@ curl http://127.0.0.1:8000/health
 ```bash
 curl -X POST "http://127.0.0.1:8000/dialogs/start" \
   -H "Content-Type: application/json" \
-  -d "{\"question\":\"I am preparing for an ML Algorithm Engineer interview.\",\"max_round\":5}"
+  -d "{\"question\":\"I am preparing for an ML Algorithm Engineer interview.\",\"max_round\":5,\"question_mode\":\"choice\"}"
 ```
+
+`question_mode` supports:
+
+- `choice` (default): multiple-choice questions, answer with `A/B/C/D`
+- `open`: free-form text answers
 
 Response includes:
 
@@ -110,7 +115,7 @@ Response includes:
 
 ## Current Development Status
 
-Based on `PROPOSAL.md`, the basic loop is done (build graph, ask, score, update).  
+Based on `docs/PROPOSAL.md`, the basic loop is done (build graph, ask, score, update).  
 Next steps include better sampling strategy, branch learning, completion criteria, points system, and more tests.
 
 ## Frontend Deployment to GitHub Pages
