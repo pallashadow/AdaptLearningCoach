@@ -1,7 +1,6 @@
 fastapi
 uvicorn[standard]
-redis
+google-cloud-firestore
 litellm
 langgraph
 pydantic
-nest_asyncio

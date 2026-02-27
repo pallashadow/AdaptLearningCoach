@@ -99,7 +99,10 @@ Response includes:
 ## Storage
 
 - Default: in-memory storage (dialogs are lost after restart)
-- Optional: set `REDIS_URL` to persist dialog state in Redis
+- Optional: configure GCP credentials to persist dialog state in Firestore
+  - `GOOGLE_APPLICATION_CREDENTIALS`: path to service account JSON
+  - `FIRESTORE_PROJECT_ID` (optional): overrides GCP project id auto-detection
+  - `FIRESTORE_COLLECTION` (optional, default `agentic_dialogs`)
 
 ## Notebook Demo
 
@@ -109,4 +112,21 @@ Response includes:
 
 Based on `PROPOSAL.md`, the basic loop is done (build graph, ask, score, update).  
 Next steps include better sampling strategy, branch learning, completion criteria, points system, and more tests.
+
+## Frontend Deployment to GitHub Pages
+
+The repository includes a GitHub Actions workflow at `.github/workflows/frontend-to-github-pages.yml`.
+
+- Trigger: push to `main`/`master` when files under `frontend/**` change, or manual run
+- Build: runs `npm ci` and `npm run build` in `frontend/`
+- Deploy: publishes `frontend/dist` to GitHub Pages
+- Base path: automatically sets `VITE_BASE_PATH` to:
+  - `/` for `<owner>.github.io` repositories
+  - `/<repo-name>/` for project pages repositories
+
+One-time GitHub setup:
+
+1. Go to **Settings -> Pages**
+2. Set **Source** to **GitHub Actions**
+3. Push to `main` (or run the workflow manually) to publish
 

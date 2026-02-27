@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
@@ -82,29 +83,68 @@ class InMemoryDialogStore:
             return self._items.pop(dialog_id, None) is not None
 
 
-class RedisDialogStore:
-    def __init__(self, redis_client: Any, key_prefix: str = "agentic:dialog:") -> None:
-        self._redis = redis_client
-        self._prefix = key_prefix
+class FirestoreDialogStore:
+    def __init__(self, firestore_client: Any, collection: str = "agentic_dialogs") -> None:
+        self._firestore = firestore_client
+        self._collection = collection
 
-    def _key(self, dialog_id: str) -> str:
-        return f"{self._prefix}{dialog_id}"
+    def _doc(self, dialog_id: str) -> Any:
+        return self._firestore.collection(self._collection).document(dialog_id)
 
     async def get(self, dialog_id: str) -> dict[str, Any] | None:
-        raw = await self._redis.get(self._key(dialog_id))
-        if raw is None:
+        snapshot = await self._doc(dialog_id).get()
+        if not snapshot.exists:
             return None
-        return json.loads(raw)
+        data = snapshot.to_dict() or {}
+        return json.loads(json.dumps(data))
 
     async def set(self, dialog_id: str, value: dict[str, Any]) -> None:
-        await self._redis.set(self._key(dialog_id), json.dumps(value, ensure_ascii=False))
+        await self._doc(dialog_id).set(value)
 
     async def delete(self, dialog_id: str) -> bool:
-        deleted_count = await self._redis.delete(self._key(dialog_id))
-        return bool(deleted_count)
+        doc_ref = self._doc(dialog_id)
+        snapshot = await doc_ref.get()
+        if not snapshot.exists:
+            return False
+        await doc_ref.delete()
+        return True
 
 
-app = FastAPI(title="Agentic Learning API", version="0.1.0")
+store: InMemoryDialogStore | FirestoreDialogStore = InMemoryDialogStore()
+firestore_client: Any | None = None
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    global store, firestore_client
+    firestore_project_id = os.getenv("FIRESTORE_PROJECT_ID", "").strip() or None
+    firestore_collection = os.getenv("FIRESTORE_COLLECTION", "").strip() or "agentic_dialogs"
+
+    try:
+        from google.cloud.firestore_v1.async_client import AsyncClient as FirestoreAsyncClient  # type: ignore
+    except Exception:
+        logger.warning("google-cloud-firestore not installed, fallback to in-memory dialog store.")
+        firestore_client = None
+        store = InMemoryDialogStore()
+    else:
+        try:
+            firestore_client = FirestoreAsyncClient(project=firestore_project_id)
+            await firestore_client.collection(firestore_collection).limit(1).get()
+            store = FirestoreDialogStore(firestore_client, collection=firestore_collection)
+            logger.info(f"Using Firestore dialog store (collection={firestore_collection}).")
+        except Exception as exc:
+            logger.warning(f"Firestore unavailable ({exc}), fallback to in-memory dialog store.")
+            firestore_client = None
+            store = InMemoryDialogStore()
+    try:
+        yield
+    finally:
+        if firestore_client is not None:
+            await firestore_client.close()
+            firestore_client = None
+
+
+app = FastAPI(title="Agentic Learning API", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -113,42 +153,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-store: InMemoryDialogStore | RedisDialogStore = InMemoryDialogStore()
-redis_client: Any | None = None
-
-
-@app.on_event("startup")
-async def startup_event() -> None:
-    global store, redis_client
-    redis_url = os.getenv("REDIS_URL", "").strip()
-    if not redis_url:
-        logger.info("REDIS_URL not configured, using in-memory dialog store.")
-        return
-
-    try:
-        import redis.asyncio as redis  # type: ignore
-    except Exception:
-        logger.warning("redis package not installed, fallback to in-memory dialog store.")
-        return
-
-    try:
-        redis_client = redis.from_url(redis_url, decode_responses=True)
-        await redis_client.ping()
-        store = RedisDialogStore(redis_client)
-        logger.info("Using Redis dialog store.")
-    except Exception as exc:
-        logger.warning(f"Redis unavailable ({exc}), fallback to in-memory dialog store.")
-        redis_client = None
-        store = InMemoryDialogStore()
-
-
-@app.on_event("shutdown")
-async def shutdown_event() -> None:
-    global redis_client
-    if redis_client is not None:
-        await redis_client.close()
-        redis_client = None
 
 
 def _snapshot_from_record(dialog_id: str, record: dict[str, Any]) -> DialogSnapshot:
@@ -249,3 +253,10 @@ async def get_dialog(dialog_id: str) -> DialogSnapshot:
 async def delete_dialog(dialog_id: str) -> dict[str, bool]:
     deleted = await store.delete(dialog_id)
     return {"deleted": deleted}
+
+
+if __name__ == "__main__":
+    import uvicorn
+
+    port = int(os.getenv("PORT", "8001"))
+    uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)

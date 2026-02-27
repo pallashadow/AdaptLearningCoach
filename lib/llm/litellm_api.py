@@ -2,7 +2,6 @@ import litellm
 from litellm import acompletion
 from pydantic import BaseModel
 import asyncio
-import nest_asyncio
 import os
 import logging
 from litellm import Router
@@ -29,7 +28,6 @@ except Exception:
 
     def update_trace_with_token_usage(**kwargs) -> None:
         return None
-nest_asyncio.apply()
 import tempfile
 litellm.enable_json_schema_validation=True
 
