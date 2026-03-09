@@ -1,5 +1,5 @@
 :root {
-  font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
   color: #1f2937;
   background: #f7f8fa;
 }
@@ -37,12 +37,12 @@ h2 {
   font-size: 1rem;
 }
 
-.row {
-  margin-bottom: 0.75rem;
+.row-stack {
+  margin: 0;
 }
 
-.hidden {
-  display: none;
+.row {
+  margin-bottom: 0.75rem;
 }
 
 .docs-row {
@@ -102,6 +102,49 @@ label {
   margin-bottom: 0.3rem;
 }
 
+.field-label-with-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.info-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 1rem;
+  padding: 0;
+  border-radius: 9999px;
+  border: 1px solid #93c5fd;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.info-icon:hover {
+  background: #dbeafe;
+}
+
+.help-popover {
+  position: absolute;
+  top: calc(100% + 0.25rem);
+  left: 0;
+  z-index: 10;
+  width: 220px;
+  padding: 0.45rem 0.55rem;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #374151;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  box-shadow: 0 8px 22px rgba(17, 24, 39, 0.12);
+}
+
 input,
 select,
 textarea,
@@ -124,7 +167,8 @@ textarea {
   resize: vertical;
 }
 
-input[type="checkbox"] {
+input[type="checkbox"],
+input[type="radio"] {
   width: auto;
 }
 
@@ -144,11 +188,6 @@ input[type="checkbox"] {
   cursor: pointer;
 }
 
-.radio-option input[type="radio"] {
-  width: auto;
-  margin-top: 0.2rem;
-}
-
 .radio-option span {
   font-size: 0.95rem;
   color: #1f2937;
@@ -161,10 +200,6 @@ textarea:disabled {
   border-color: #cbd5e1;
   cursor: not-allowed;
   opacity: 1;
-}
-
-.radio-option input[type="radio"]:disabled + span {
-  color: #6b7280;
 }
 
 button {

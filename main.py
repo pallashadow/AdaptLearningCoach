@@ -1,16 +1,21 @@
-import asyncio
-import json
 import logging
 import os
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, Literal
+from typing import Any
 from uuid import uuid4
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
 
+from lib.api.dialog_store import FirestoreDialogStore
+from lib.api.schemas import (
+    AnswerRequest,
+    AnswerResponse,
+    DialogSnapshot,
+    StartDialogRequest,
+    StartDialogResponse,
+)
 from lib.agentic.config import AgentState
 from lib.agentic.nodes.auto_answer_node import auto_answer_node
 from lib.agentic.nodes.entry_node import entry_llm_node
@@ -24,97 +29,28 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-class StartDialogRequest(BaseModel):
-    question: str = Field(..., min_length=1, description="Learning goal or interview goal.")
-    max_round: int = Field(default=5, ge=1, le=20)
-    auto_answer_enabled: bool = Field(default=False)
-    auto_answer_proficiency: float = Field(default=70.0, ge=0.0, le=100.0)
-    question_mode: Literal["open", "choice"] = Field(default="choice")
-
-
-class StartDialogResponse(BaseModel):
-    dialog_id: str
-    current_round: int
-    max_round: int
-    current_question: str
-    current_concept: str
-    knowledge_graph_root: dict[str, Any]
-
-
-class AnswerRequest(BaseModel):
-    dialog_id: str = Field(..., min_length=1)
-    user_answer: str = Field(default="")
-
-
-class AnswerResponse(BaseModel):
-    dialog_id: str
-    finished: bool
-    current_round: int
-    max_round: int
-    current_concept: str
-    current_question: str
-    current_feedback: str
-    current_score: float
-    last_ground_truth: str
-
-
-class DialogSnapshot(BaseModel):
-    dialog_id: str
-    created_at: str
-    updated_at: str
-    finished: bool
-    state: dict[str, Any]
-
-
-class InMemoryDialogStore:
-    def __init__(self) -> None:
-        self._items: dict[str, dict[str, Any]] = {}
-        self._lock = asyncio.Lock()
-
-    async def get(self, dialog_id: str) -> dict[str, Any] | None:
-        async with self._lock:
-            item = self._items.get(dialog_id)
-            if item is None:
-                return None
-            return json.loads(json.dumps(item))
-
-    async def set(self, dialog_id: str, value: dict[str, Any]) -> None:
-        async with self._lock:
-            self._items[dialog_id] = json.loads(json.dumps(value))
-
-    async def delete(self, dialog_id: str) -> bool:
-        async with self._lock:
-            return self._items.pop(dialog_id, None) is not None
-
-
-class FirestoreDialogStore:
-    def __init__(self, firestore_client: Any, collection: str = "agentic_dialogs") -> None:
-        self._firestore = firestore_client
-        self._collection = collection
-
-    def _doc(self, dialog_id: str) -> Any:
-        return self._firestore.collection(self._collection).document(dialog_id)
-
-    async def get(self, dialog_id: str) -> dict[str, Any] | None:
-        snapshot = await self._doc(dialog_id).get()
-        if not snapshot.exists:
-            return None
-        data = snapshot.to_dict() or {}
-        return json.loads(json.dumps(data))
-
-    async def set(self, dialog_id: str, value: dict[str, Any]) -> None:
-        await self._doc(dialog_id).set(value)
-
-    async def delete(self, dialog_id: str) -> bool:
-        doc_ref = self._doc(dialog_id)
-        snapshot = await doc_ref.get()
-        if not snapshot.exists:
-            return False
-        await doc_ref.delete()
+def _parse_bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    normalized = value.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
         return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
-store: InMemoryDialogStore | FirestoreDialogStore = InMemoryDialogStore()
+def _parse_cors_origins() -> list[str]:
+    default_origins = ["http://127.0.0.1:5173", "http://localhost:5173"]
+    raw = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+    if not raw:
+        return default_origins
+    origins = [item.strip() for item in raw.split(",") if item.strip()]
+    return origins or default_origins
+
+
+store: FirestoreDialogStore | None = None
 firestore_client: Any | None = None
 
 
@@ -126,34 +62,35 @@ async def lifespan(_app: FastAPI):
 
     try:
         from google.cloud.firestore_v1.async_client import AsyncClient as FirestoreAsyncClient  # type: ignore
-    except Exception:
-        logger.warning("google-cloud-firestore not installed, fallback to in-memory dialog store.")
-        firestore_client = None
-        store = InMemoryDialogStore()
-    else:
-        try:
-            firestore_client = FirestoreAsyncClient(project=firestore_project_id)
-            await firestore_client.collection(firestore_collection).limit(1).get()
-            store = FirestoreDialogStore(firestore_client, collection=firestore_collection)
-            logger.info(f"Using Firestore dialog store (collection={firestore_collection}).")
-        except Exception as exc:
-            logger.warning(f"Firestore unavailable ({exc}), fallback to in-memory dialog store.")
-            firestore_client = None
-            store = InMemoryDialogStore()
+    except Exception as exc:
+        raise RuntimeError("google-cloud-firestore is required and must be installed.") from exc
+
+    firestore_client = FirestoreAsyncClient(project=firestore_project_id)
+    await firestore_client.collection(firestore_collection).limit(1).get()
+    store = FirestoreDialogStore(firestore_client, collection=firestore_collection)
+    logger.info(f"Using Firestore dialog store (collection={firestore_collection}).")
+
     try:
         yield
     finally:
         if firestore_client is not None:
             await firestore_client.close()
             firestore_client = None
+        store = None
 
 
 app = FastAPI(title="Agentic Learning API", version="0.1.0", lifespan=lifespan)
 
+cors_allow_origins = _parse_cors_origins()
+cors_allow_credentials = _parse_bool_env("CORS_ALLOW_CREDENTIALS", default=False)
+if cors_allow_credentials and "*" in cors_allow_origins:
+    logger.warning("CORS_ALLOW_CREDENTIALS=true is incompatible with wildcard origin '*'; downgrading credentials to false.")
+    cors_allow_credentials = False
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=cors_allow_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -183,9 +120,13 @@ async def health() -> dict[str, str]:
 
 @app.post("/dialogs/start", response_model=StartDialogResponse)
 async def start_dialog(payload: StartDialogRequest) -> StartDialogResponse:
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
+
     dialog_id = str(uuid4())
     initial_state: AgentState = {
         "question": payload.question.strip(),
+        "user_id": payload.user_id.strip(),
         "max_round": payload.max_round,
         "auto_answer_enabled": payload.auto_answer_enabled,
         "auto_answer_proficiency": payload.auto_answer_proficiency,
@@ -216,50 +157,67 @@ async def start_dialog(payload: StartDialogRequest) -> StartDialogResponse:
 
 @app.post("/dialogs/answer", response_model=AnswerResponse)
 async def submit_answer(payload: AnswerRequest) -> AnswerResponse:
-    record = await store.get(payload.dialog_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="dialog_id not found")
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
 
-    state = dict(record.get("state") or {})
-    current_round = int(state.get("current_round", 0) or 0)
-    max_round = int(state.get("max_round", 5) or 5)
-    if current_round >= max_round:
-        raise HTTPException(status_code=400, detail="dialog already finished")
+    max_write_retries = 3
 
-    auto_answer_enabled = bool(state.get("auto_answer_enabled", False))
-    if auto_answer_enabled:
-        state = await auto_answer_node(state)
-    else:
-        user_answer = payload.user_answer.strip()
-        if not user_answer:
-            raise HTTPException(status_code=400, detail="user_answer is required when auto_answer_enabled=false")
-        state["user_answer"] = user_answer
-    state = await ref_node(state)
+    for attempt in range(max_write_retries):
+        record = await store.get(payload.dialog_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="dialog_id not found")
 
-    current_round = int(state.get("current_round", 0) or 0)
-    finished = current_round >= max_round
-    if not finished:
-        state = await question_node(state)
+        state = dict(record.get("state") or {})
+        current_round = int(state.get("current_round", 0) or 0)
+        max_round = int(state.get("max_round", 5) or 5)
+        if current_round >= max_round:
+            raise HTTPException(status_code=400, detail="dialog already finished")
 
-    record["state"] = state
-    record["updated_at"] = _now_iso()
-    await store.set(payload.dialog_id, record)
+        auto_answer_enabled = bool(state.get("auto_answer_enabled", False))
+        if auto_answer_enabled:
+            state = await auto_answer_node(state)
+        else:
+            user_answer = payload.user_answer.strip()
+            if not user_answer:
+                raise HTTPException(status_code=400, detail="user_answer is required when auto_answer_enabled=false")
+            state["user_answer"] = user_answer
+        state = await ref_node(state)
 
-    return AnswerResponse(
-        dialog_id=payload.dialog_id,
-        finished=finished,
-        current_round=current_round,
-        max_round=max_round,
-        current_concept=str(state.get("current_concept", "")),
-        current_question="" if finished else str(state.get("current_question", "")),
-        current_feedback=str(state.get("current_feedback", "")),
-        current_score=float(state.get("current_score", 0.0) or 0.0),
-        last_ground_truth=str(state.get("last_ground_truth", "")),
-    )
+        current_round = int(state.get("current_round", 0) or 0)
+        finished = current_round >= max_round
+        if not finished:
+            state = await question_node(state)
+
+        expected_updated_at = str(record.get("updated_at", ""))
+        next_record = {
+            **record,
+            "state": state,
+            "updated_at": _now_iso(),
+        }
+        updated = await store.compare_and_set(payload.dialog_id, expected_updated_at, next_record)
+        if updated:
+            return AnswerResponse(
+                dialog_id=payload.dialog_id,
+                finished=finished,
+                current_round=current_round,
+                max_round=max_round,
+                current_concept=str(state.get("current_concept", "")),
+                current_question="" if finished else str(state.get("current_question", "")),
+                current_feedback=str(state.get("current_feedback", "")),
+                current_score=float(state.get("current_score", 0.0) or 0.0),
+                last_ground_truth=str(state.get("last_ground_truth", "")),
+            )
+
+        logger.info("Concurrent update conflict on dialog_id=%s (attempt %s/%s)", payload.dialog_id, attempt + 1, max_write_retries)
+
+    raise HTTPException(status_code=409, detail="dialog was updated concurrently, please retry")
 
 
 @app.get("/dialogs/{dialog_id}", response_model=DialogSnapshot)
 async def get_dialog(dialog_id: str) -> DialogSnapshot:
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
+
     record = await store.get(dialog_id)
     if record is None:
         raise HTTPException(status_code=404, detail="dialog_id not found")
@@ -268,6 +226,9 @@ async def get_dialog(dialog_id: str) -> DialogSnapshot:
 
 @app.delete("/dialogs/{dialog_id}")
 async def delete_dialog(dialog_id: str) -> dict[str, bool]:
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
+
     deleted = await store.delete(dialog_id)
     return {"deleted": deleted}
 

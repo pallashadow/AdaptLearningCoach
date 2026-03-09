@@ -8,6 +8,9 @@ from lib.llm.litellm_api import call_llm_with_tools
 logger = logging.getLogger(__name__)
 OPTION_LABELS = ("A", "B", "C", "D")
 
+def _next_round(current_round: int, is_followup: bool) -> int:
+    return current_round if is_followup else current_round + 1
+
 
 def _normalize_score(raw: Any) -> float:
     try:
@@ -239,7 +242,7 @@ async def ref_node(state: AgentState) -> AgentState:
         return {
             **state,
             "max_round": max_round,
-            "current_round": current_round + 1,
+            "current_round": _next_round(current_round, is_followup),
             "current_feedback": "Missing user_answer.",
             "current_score": 0.0,
             "current_score_raw": 0.0,
@@ -249,7 +252,7 @@ async def ref_node(state: AgentState) -> AgentState:
         return {
             **state,
             "max_round": max_round,
-            "current_round": current_round + 1,
+            "current_round": _next_round(current_round, is_followup),
             "current_feedback": "Missing current_concept or current_question.",
             "current_score": 0.0,
             "current_score_raw": 0.0,
@@ -367,7 +370,7 @@ async def ref_node(state: AgentState) -> AgentState:
         **state,
         "knowledge_graph_root": root,
         "max_round": max_round,
-        "current_round": current_round + 1,
+        "current_round": _next_round(current_round, is_followup),
         "current_score": effective_score,
         "current_score_raw": score,
         "current_feedback": feedback,
@@ -381,3 +384,5 @@ async def ref_node(state: AgentState) -> AgentState:
         "answer": feedback,
         "user_answer": "",
     }
+
+

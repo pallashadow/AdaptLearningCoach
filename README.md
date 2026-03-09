@@ -32,6 +32,35 @@ Key state fields maintained by the system:
 - `familiarity`: mastery score (0-100)
 - `current_round / max_round`: current round and total rounds
 
+## File Structure
+
+```text
+agentic_learning/
+├─ main.py                            # FastAPI entrypoint and route orchestration
+├─ README.md
+├─ requirements.txt
+├─ frontend/                          # Optional web UI
+│  └─ src/
+├─ lib/
+│  ├─ api/
+│  │  ├─ schemas.py                   # Request/Response models
+│  │  └─ dialog_store.py              # Firestore dialog storage
+│  ├─ agentic/
+│  │  ├─ config.py                    # Typed state definitions
+│  │  ├─ graph.py
+│  │  ├─ nodes/
+│  │  │  ├─ entry_node.py             # Build initial concept graph
+│  │  │  ├─ question_node.py          # Generate next diagnostic question
+│  │  │  ├─ ref_node.py               # Evaluate answer and update familiarity
+│  │  │  └─ auto_answer_node.py       # Auto-answer simulation
+│  │  ├─ prompt_build/
+│  │  └─ tools/
+│  └─ llm/
+│     └─ litellm_api.py               # LLM/tool-call wrapper
+└─ playground/
+   └─ pg1.ipynb
+```
+
 ## API Quick Start
 
 ### 1) Install dependencies
@@ -54,23 +83,23 @@ Optional: if you also configure a Gemini key, the project can fall back between 
 ### 3) Start the service
 
 ```bash
-uvicorn main:app --reload
+uvicorn main:app --reload --port 8001
 ```
 
-Default URL: `http://127.0.0.1:8000`
+Default URL: `http://127.0.0.1:8001`
 
 ### 4) Call the API
 
 #### Health check
 
 ```bash
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8001/health
 ```
 
 #### Start a learning dialog
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/dialogs/start" \
+curl -X POST "http://127.0.0.1:8001/dialogs/start" \
   -H "Content-Type: application/json" \
   -d "{\"question\":\"I am preparing for an ML Algorithm Engineer interview.\",\"max_round\":5,\"question_mode\":\"choice\"}"
 ```
@@ -89,7 +118,7 @@ Response includes:
 #### Submit an answer
 
 ```bash
-curl -X POST "http://127.0.0.1:8000/dialogs/answer" \
+curl -X POST "http://127.0.0.1:8001/dialogs/answer" \
   -H "Content-Type: application/json" \
   -d "{\"dialog_id\":\"<your_dialog_id>\",\"user_answer\":\"your answer\"}"
 ```
@@ -103,8 +132,7 @@ Response includes:
 
 ## Storage
 
-- Default: in-memory storage (dialogs are lost after restart)
-- Optional: configure GCP credentials to persist dialog state in Firestore
+- Firestore is required for dialog state persistence
   - `GOOGLE_APPLICATION_CREDENTIALS`: path to service account JSON
   - `FIRESTORE_PROJECT_ID` (optional): overrides GCP project id auto-detection
   - `FIRESTORE_COLLECTION` (optional, default `agentic_dialogs`)
@@ -134,4 +162,8 @@ One-time GitHub setup:
 1. Go to **Settings -> Pages**
 2. Set **Source** to **GitHub Actions**
 3. Push to `main` (or run the workflow manually) to publish
+
+
+
+
 

@@ -48,7 +48,7 @@ def _build_choice_question_tools() -> list[dict[str, Any]]:
             "type": "function",
             "function": {
                 "name": "generate_multiple_choice_question",
-                "description": "Generate one multiple-choice diagnostic question for the selected concept.",
+                "description": "Generate one single-choice diagnostic question for the selected concept.",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -73,20 +73,30 @@ def _build_choice_question_tools() -> list[dict[str, Any]]:
 
 def _build_question_prompt(
     concept_name: str,
+    learning_goal: str,
     qa_history: list[dict[str, Any]],
     question_mode: str,
+    main_question_total: int,
 ) -> str:
     history_text = json.dumps(qa_history[-5:], ensure_ascii=False, indent=2)
-    question_index = min(len(qa_history) + 1, 5)
+    if main_question_total <= 0:
+        main_question_total = 5
+    question_index = min(len(qa_history) + 1, main_question_total)
     return (
         "You are a diagnostic tutor. Generate ONE concise question to evaluate user's understanding.\n"
+        f"Learning Goal: {learning_goal}\n"
         f"Target concept: {concept_name}\n"
-        f"This is diagnostic question #{question_index} out of 5 for this concept.\n"
-        "Goal: across 5 questions, cover all major aspects of the concept (definition, intuition, formula/mechanism, example/application, edge cases/comparison).\n"
+        f"This is diagnostic question #{question_index} out of {main_question_total} for this concept.\n"
+        f"Goal: across {main_question_total} questions, cover all major aspects of the concept (definition, intuition, formula/mechanism, example/application, edge cases/comparison).\n"
+        "The generated question MUST be a concrete decomposition of the Learning Goal under this Target concept.\n"
+        "Do not ask detached trivia; each question should clearly advance diagnosis for the Learning Goal.\n"
         "Use past Q/A to avoid duplicates; pick an uncovered or weakly covered aspect.\n"
         f"Question mode: {question_mode}\n"
         "If mode is open: question should be specific, answerable in 2-6 sentences, and suitable for scoring in [0,100].\n"
-        "If mode is choice: provide one clear stem and 4 options with exactly one correct option.\n\n"
+        "If mode is choice: this MUST be a single-choice question.\n"
+        "Provide one clear stem and 4 options (A/B/C/D) with exactly one correct option.\n"
+        "Do not use 'multiple answers', 'all of the above', or 'none of the above'.\n"
+        "The learner must be able to answer by choosing exactly one option letter.\n\n"
         f"Past QA history (latest up to 5):\n{history_text}"
     )
 
@@ -164,8 +174,20 @@ async def question_node(state: AgentState) -> AgentState:
     question_mode = str(state.get("question_mode", "choice") or "choice").strip().lower()
     if question_mode not in {"open", "choice"}:
         question_mode = "choice"
+    learning_goal = str(state.get("question", "") or state.get("course_plan", "") or state.get("user_plan", "")).strip()
+    if not learning_goal:
+        learning_goal = "General learning diagnostics."
+    main_question_total = int(state.get("max_round", 5) or 5)
+    if main_question_total <= 0:
+        main_question_total = 5
 
-    prompt = _build_question_prompt(concept_name, qa_history, question_mode)
+    prompt = _build_question_prompt(
+        concept_name=concept_name,
+        learning_goal=learning_goal,
+        qa_history=qa_history,
+        question_mode=question_mode,
+        main_question_total=main_question_total,
+    )
 
     if question_mode == "choice":
         current_options = [

@@ -22,6 +22,7 @@ class KnowledgeGraphRoot(TypedDict):
 class AgentState(TypedDict, total=False):
     # Input/user context
     question: str
+    user_id: str
     course_plan: str
     user_plan: str
     user_answer: str

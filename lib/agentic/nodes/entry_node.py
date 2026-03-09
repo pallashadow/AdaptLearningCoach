@@ -5,6 +5,11 @@ from typing import Any
 from lib.agentic.prompt_build.entry_node_prompt_builder import build_entry_node_prompt
 from lib.agentic.tools.entry_node_tools import get_entry_node_tools
 from lib.llm.litellm_api import call_llm_with_tools
+from lib.agentic.nodes.student_state_init_node import (
+    get_student_state_by_user_id,
+    save_student_state_by_user_id,
+    student_state_init_node,
+)
 
 try:
     from lib.agentic.config import AgentState
@@ -67,7 +72,7 @@ def _normalize_concept_item(raw: Any) -> dict[str, Any] | None:
         qa_history = _normalize_qa_history(
             raw.get(
                 "qa_history",
-                raw.get("history_questions", raw.get("\u5386\u53f2\u63d0\u95ee", [])),
+                raw.get("history_questions", raw.get("历史提问", [])),
             )
         )
     else:
@@ -117,12 +122,37 @@ def _normalize_root_node(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _load_state_from_firestore(user_id: str) -> dict[str, Any] | None:
+    student_state = await get_student_state_by_user_id(user_id)
+    if not isinstance(student_state, dict):
+        return None
+    root = student_state.get("knowledge_graph_root")
+    if not isinstance(root, dict):
+        return None
+    return root
+
+
 async def entry_llm_node(state: AgentState) -> AgentState:
     """
     Build the root node for a soft knowledge graph from user's course/interview plan.
     Output shape follows docs/PROPOSAL.md item 1:
     { concepts: [{ concept, familiarity, posterior_question_count, qa_history }], reasoning_pattern }
     """
+    user_id = str(state.get("user_id", "") or "").strip()
+    if user_id:
+        persisted_root = await _load_state_from_firestore(user_id)
+        if persisted_root is None:
+            state = await student_state_init_node(state)
+        elif isinstance(persisted_root.get("concepts"), list) and persisted_root.get("concepts"):
+            return {
+                **state,
+                "query_type": "learning_plan",
+                "answer": json.dumps(persisted_root, ensure_ascii=False, indent=2),
+                "knowledge_graph_root": persisted_root,
+                "planned_skill_calls": [],
+                "search_ops": None,
+            }
+
     existing_root = state.get("knowledge_graph_root")
     if isinstance(existing_root, dict) and isinstance(existing_root.get("concepts"), list):
         if existing_root.get("concepts"):
@@ -159,6 +189,12 @@ async def entry_llm_node(state: AgentState) -> AgentState:
     if root_node is None:
         root_node = _normalize_root_node({})
 
+    if user_id:
+        try:
+            await save_student_state_by_user_id(user_id, root_node)
+        except Exception as exc:
+            logger.warning(f"failed to save student state for user_id={user_id}: {exc}")
+
     return {
         **state,
         "query_type": "learning_plan",
@@ -167,4 +203,3 @@ async def entry_llm_node(state: AgentState) -> AgentState:
         "planned_skill_calls": [],
         "search_ops": None,
     }
-

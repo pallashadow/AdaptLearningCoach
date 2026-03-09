@@ -90,8 +90,9 @@ async def call_llm(str1,
                    router=None, 
                    model_name="openai/gpt-4o", 
                    response_format=None, 
-                   kwargs={}):
+                   kwargs: dict | None = None):
     start_time = time.time()
+    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -156,7 +157,7 @@ async def call_llm_stream(str1,
                          router=None, 
                          model_name="openai/gpt-4o", 
                          response_format=None, 
-                         kwargs={}):
+                         kwargs: dict | None = None):
     """
     Stream LLM response as async generator yielding chunks.
     
@@ -164,6 +165,7 @@ async def call_llm_stream(str1,
         str: Content chunks from the LLM stream
     """
     start_time = time.time()
+    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -281,6 +283,7 @@ async def call_llm_with_tools(
         dict: Contains 'content' and 'tool_calls' (if any)
     """
     start_time = time.time()
+    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -351,3 +354,4 @@ async def call_llm_with_tools(
             logging.debug(f"Failed to record token usage to LangSmith: {e}")
     
     return result
+
