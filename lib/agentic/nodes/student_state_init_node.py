@@ -252,6 +252,42 @@ async def save_student_state_by_user_id(user_id: str, knowledge_graph_root: dict
     return True
 
 
+async def reset_student_state_by_user_id(user_id: str) -> dict[str, int | bool]:
+    user_key = str(user_id or "").strip()
+    if not user_key:
+        return {
+            "deleted_profile": False,
+            "deleted_legacy_state": False,
+            "deleted_concepts": 0,
+        }
+
+    crud = await _get_firestore_crud()
+    if crud is None:
+        return {
+            "deleted_profile": False,
+            "deleted_legacy_state": False,
+            "deleted_concepts": 0,
+        }
+
+    concept_rows = await crud.list_by_field(_concept_collection(), "user_id", user_key)
+    deleted_concepts = 0
+    for row in concept_rows:
+        doc_id = str(row.get("_doc_id", "")).strip()
+        if not doc_id:
+            continue
+        deleted = await crud.delete(_concept_collection(), doc_id)
+        if deleted:
+            deleted_concepts += 1
+
+    deleted_profile = await crud.delete(_profile_collection(), user_key)
+    deleted_legacy_state = await crud.delete(_legacy_state_collection(), user_key)
+    return {
+        "deleted_profile": deleted_profile,
+        "deleted_legacy_state": deleted_legacy_state,
+        "deleted_concepts": deleted_concepts,
+    }
+
+
 async def student_state_init_node(state: AgentState) -> AgentState:
     user_id = str(state.get("user_id", "") or "").strip()
     if not user_id:

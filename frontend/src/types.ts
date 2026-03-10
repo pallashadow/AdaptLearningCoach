@@ -29,6 +29,7 @@ export type DialogSnapshotResponse = {
 
 export type StartDialogPayload = {
   question: string;
+  user_id: string;
   max_round: number;
   auto_answer_enabled: boolean;
   auto_answer_proficiency: number;
@@ -39,6 +40,14 @@ export type StartDialogPayload = {
 export type SubmitAnswerPayload = {
   dialog_id: string;
   user_answer: string;
+};
+
+export type ResetUserStateResponse = {
+  user_id: string;
+  deleted_dialogs: number;
+  deleted_concepts: number;
+  deleted_profile: boolean;
+  deleted_legacy_state: boolean;
 };
 
 

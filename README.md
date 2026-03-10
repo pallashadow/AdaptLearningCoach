@@ -66,7 +66,7 @@ agentic_learning/
 ### 1) Install dependencies
 
 ```bash
-pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 ### 2) Configure environment variables
@@ -83,7 +83,7 @@ Optional: if you also configure a Gemini key, the project can fall back between 
 ### 3) Start the service
 
 ```bash
-uvicorn main:app --reload --port 8001
+.\.venv\Scripts\python.exe -m uvicorn main:app --reload --port 8001
 ```
 
 Default URL: `http://127.0.0.1:8001`
@@ -101,7 +101,7 @@ curl http://127.0.0.1:8001/health
 ```bash
 curl -X POST "http://127.0.0.1:8001/dialogs/start" \
   -H "Content-Type: application/json" \
-  -d "{\"question\":\"I am preparing for an ML Algorithm Engineer interview.\",\"max_round\":5,\"question_mode\":\"choice\"}"
+  -d "{\"question\":\"I am preparing for an ML Algorithm Engineer interview.\",\"user_id\":\"demo-user\",\"max_round\":5,\"question_mode\":\"choice\"}"
 ```
 
 `question_mode` supports:
@@ -114,6 +114,8 @@ Response includes:
 - `dialog_id`: unique ID for this dialog
 - `current_question`: first diagnostic question
 - `knowledge_graph_root`: generated concept structure
+
+`user_id` is strongly recommended (and required by the current frontend form) so the backend can persist and reset one user's learning state.
 
 #### Submit an answer
 
@@ -130,12 +132,41 @@ Response includes:
 - `last_ground_truth`: reference answer
 - `finished`: whether the dialog is complete
 
+#### Reset one user's state
+
+```bash
+curl -X POST "http://127.0.0.1:8001/users/demo-user/reset"
+```
+
+This endpoint deletes:
+- all dialogs for `user_id`
+- persisted student profile/concepts for `user_id`
+
 ## Storage
 
 - Firestore is required for dialog state persistence
   - `GOOGLE_APPLICATION_CREDENTIALS`: path to service account JSON
   - `FIRESTORE_PROJECT_ID` (optional): overrides GCP project id auto-detection
   - `FIRESTORE_COLLECTION` (optional, default `agentic_dialogs`)
+
+Student state persistence (entry/ref nodes) also uses Firestore collections:
+- `FIRESTORE_STUDENT_PROFILE_COLLECTION` (default `agentic_student_profiles`)
+- `FIRESTORE_STUDENT_CONCEPT_COLLECTION` (default `agentic_student_concepts`)
+- `FIRESTORE_STUDENT_COLLECTION` (legacy default `agentic_student_states`)
+
+## Local Dev (Frontend + Backend)
+
+One-command local startup (recommended):
+
+```bash
+powershell -ExecutionPolicy Bypass -File .\scripts\restart-dev.ps1
+```
+
+This starts both:
+- backend: `http://127.0.0.1:8001`
+- frontend: `http://127.0.0.1:5173`
+
+In this project, this is called `Local Dev` / `本地联调` (not deploy).
 
 ## Notebook Demo
 
@@ -162,6 +193,12 @@ One-time GitHub setup:
 1. Go to **Settings -> Pages**
 2. Set **Source** to **GitHub Actions**
 3. Push to `main` (or run the workflow manually) to publish
+
+## Backend Deployment
+
+Backend uses Cloud Run. See:
+- [docs/README_GCLOUD_FUNCTIONS.md](docs/README_GCLOUD_FUNCTIONS.md)
+- [deploy/deploy.sh](deploy/deploy.sh)
 
 
 

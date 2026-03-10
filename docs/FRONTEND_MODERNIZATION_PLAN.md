@@ -48,6 +48,7 @@ This implementation executes P0 fully and P1 baseline:
 - TanStack Query + form validation wired
 - ESLint/Prettier/Vitest/Playwright configured
 - Husky/lint-staged configured
+- User identity field (`user_id`) and reset-state action wired with backend API (`POST /users/{user_id}/reset`)
 
 ## Acceptance Criteria
 - `npm run build` succeeds.
@@ -62,3 +63,4 @@ This implementation executes P0 fully and P1 baseline:
 ## Notes
 - Backend URL remains user-editable in UI.
 - Default backend remains `http://127.0.0.1:8001`.
+- Local debugging of frontend + backend together should use `scripts/restart-dev.ps1` from repo root.

@@ -45,6 +45,10 @@ h2 {
   margin-bottom: 0.75rem;
 }
 
+.section-toggle-row {
+  margin-bottom: 0.75rem;
+}
+
 .docs-row {
   margin-bottom: 1rem;
 }
@@ -214,6 +218,15 @@ button {
 button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
+}
+
+.secondary-button {
+  background: #e5e7eb;
+  color: #1f2937;
+}
+
+.secondary-button:hover {
+  background: #d1d5db;
 }
 
 .muted {

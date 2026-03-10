@@ -52,3 +52,9 @@ class DeleteUserDialogsResponse(BaseModel):
     deleted_count: int
 
 
+class ResetUserStateResponse(BaseModel):
+    user_id: str
+    deleted_dialogs: int
+    deleted_concepts: int
+    deleted_profile: bool
+    deleted_legacy_state: bool

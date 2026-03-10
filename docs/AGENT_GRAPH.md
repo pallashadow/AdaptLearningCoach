@@ -38,5 +38,6 @@ After `ref`:
 
 - `entry_llm -> ref` when both `user_answer` and `current_question` already exist in state.
 - `entry_llm -> question` in normal startup flow.
-- `question -> auto_answer -> ref` in each loop.
+- if `auto_answer_enabled=true`: `question -> auto_answer -> ref`
+- if `auto_answer_enabled=false`: `question -> ref` (with user-submitted answer from API payload)
 - `ref -> END` when rounds are finished; otherwise `ref -> question`.

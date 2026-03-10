@@ -26,19 +26,36 @@ function Stop-ByPort {
   }
 }
 
-Stop-ByPort -Ports @(8001, 5173, 5174, 5175)
-Start-Sleep -Seconds 1
+function Stop-ByProcessPattern {
+  param([string]$RepoRootPath)
 
-$backendOut = Join-Path $repoRoot "uvicorn.out.log"
-$backendErr = Join-Path $repoRoot "uvicorn.err.log"
-$frontendOut = Join-Path $repoRoot "frontend\vite.out.log"
-$frontendErr = Join-Path $repoRoot "frontend\vite.err.log"
+  $escapedRepoRoot = [Regex]::Escape($RepoRootPath)
+  $candidates = Get-CimInstance Win32_Process | Where-Object {
+    ($_.Name -match "^(python|node|npm|npm\.cmd)(\.exe)?$") -and
+    (
+      $_.CommandLine -match $escapedRepoRoot -or
+      $_.CommandLine -match "uvicorn main:app" -or
+      $_.CommandLine -match "vite"
+    )
+  }
 
-foreach ($logPath in @($backendOut, $backendErr, $frontendOut, $frontendErr)) {
-  if (Test-Path $logPath) {
-    Remove-Item $logPath -Force
+  foreach ($proc in $candidates) {
+    $procId = [string]$proc.ProcessId
+    if ($procId -match "^\d+$") {
+      cmd /c "taskkill /PID $procId /F" | Out-Null
+    }
   }
 }
+
+Stop-ByPort -Ports @(8001, 5173, 5174, 5175)
+Stop-ByProcessPattern -RepoRootPath $repoRoot
+Start-Sleep -Seconds 1
+
+$timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
+$backendOut = Join-Path $repoRoot "uvicorn.out.$timestamp.log"
+$backendErr = Join-Path $repoRoot "uvicorn.err.$timestamp.log"
+$frontendOut = Join-Path $repoRoot "frontend\vite.out.$timestamp.log"
+$frontendErr = Join-Path $repoRoot "frontend\vite.err.$timestamp.log"
 
 $backendProc = Start-Process `
   -FilePath $pythonPath `

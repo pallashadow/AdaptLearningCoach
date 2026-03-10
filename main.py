@@ -1,5 +1,6 @@
 import logging
 import os
+from inspect import isawaitable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -14,6 +15,7 @@ from lib.api.schemas import (
     AnswerResponse,
     DialogSnapshot,
     DeleteUserDialogsResponse,
+    ResetUserStateResponse,
     StartDialogRequest,
     StartDialogResponse,
 )
@@ -22,6 +24,7 @@ from lib.agentic.nodes.auto_answer_node import auto_answer_node
 from lib.agentic.nodes.entry_node import entry_llm_node
 from lib.agentic.nodes.question_node import question_node
 from lib.agentic.nodes.ref_node import ref_node
+from lib.agentic.nodes.student_state_init_node import reset_student_state_by_user_id
 
 logger = logging.getLogger(__name__)
 CHOICE_LABELS = ("A", "B", "C", "D")
@@ -76,7 +79,9 @@ async def lifespan(_app: FastAPI):
         yield
     finally:
         if firestore_client is not None:
-            await firestore_client.close()
+            close_result = firestore_client.close()
+            if isawaitable(close_result):
+                await close_result
             firestore_client = None
         store = None
 
@@ -293,6 +298,27 @@ async def delete_user_dialogs(user_id: str) -> DeleteUserDialogsResponse:
 
     deleted_count = await store.delete_by_user_id(normalized_user_id)
     return DeleteUserDialogsResponse(user_id=normalized_user_id, deleted_count=deleted_count)
+
+
+@app.post("/users/{user_id}/reset", response_model=ResetUserStateResponse)
+async def reset_user_state(user_id: str) -> ResetUserStateResponse:
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
+
+    normalized_user_id = user_id.strip()
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    deleted_dialogs = await store.delete_by_user_id(normalized_user_id)
+    reset_result = await reset_student_state_by_user_id(normalized_user_id)
+
+    return ResetUserStateResponse(
+        user_id=normalized_user_id,
+        deleted_dialogs=deleted_dialogs,
+        deleted_concepts=int(reset_result.get("deleted_concepts", 0) or 0),
+        deleted_profile=bool(reset_result.get("deleted_profile", False)),
+        deleted_legacy_state=bool(reset_result.get("deleted_legacy_state", False)),
+    )
 
 if __name__ == "__main__":
     import uvicorn

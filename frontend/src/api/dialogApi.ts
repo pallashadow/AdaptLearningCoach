@@ -1,6 +1,7 @@
 import type {
   AnswerResponse,
   DialogSnapshotResponse,
+  ResetUserStateResponse,
   StartDialogPayload,
   StartDialogResponse,
   SubmitAnswerPayload
@@ -42,4 +43,12 @@ export async function fetchDialogSnapshot(
 ): Promise<DialogSnapshotResponse> {
   const url = `${trimTrailingSlash(baseUrl)}/dialogs/${dialogId}`;
   return requestJson<DialogSnapshotResponse>(url);
+}
+
+export async function resetUserState(
+  baseUrl: string,
+  userId: string
+): Promise<ResetUserStateResponse> {
+  const url = `${trimTrailingSlash(baseUrl)}/users/${encodeURIComponent(userId)}/reset`;
+  return requestJson<ResetUserStateResponse>(url, { method: "POST" });
 }

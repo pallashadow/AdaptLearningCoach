@@ -96,6 +96,13 @@ Use this exact loop to reduce debugging cost:
 3) Run one smoke API case for `/dialogs/start` and verify contract.
 4) If failed, fix one root cause only, then repeat from step 1.
 
+## Local Dev Startup (Terminology)
+- Starting frontend + backend together for local debugging is called:
+  - `Local Dev` / `本地联调`
+- Do not call this `deploy` in docs or comments.
+- Standard one-command local startup:
+  - `powershell -ExecutionPolicy Bypass -File .\scripts\restart-dev.ps1`
+
 ## Logging Requirements
 - Include `dialog_id` in error logs for start/answer paths.
 - Log contract-validation failures with offending fields (option count, labels, question type).

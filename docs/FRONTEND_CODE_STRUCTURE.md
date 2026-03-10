@@ -19,7 +19,7 @@ frontend/
 │  ├─ style.css                 # 页面样式
 │  ├─ types.ts                  # 前后端交互的数据类型定义
 │  ├─ api/
-│  │  └─ dialogApi.ts           # 所有后端请求封装（start/answer/snapshot）
+│  │  └─ dialogApi.ts           # 所有后端请求封装（start/answer/snapshot/reset）
 │  └─ utils/
 │     ├─ choice.ts              # 工具函数（例如解析 A/B/C/D 选项）
 │     └─ choice.test.ts         # 对应单元测试
@@ -43,7 +43,8 @@ frontend/
 1. 用户在 `App.tsx` 填写表单
 2. `react-hook-form` 收集输入，`zod` 校验
 3. 调用 `startDialog()`（在 `api/dialogApi.ts`）发 `POST /dialogs/start`
-4. 成功后保存 `dialogId`、`currentQuestion` 等状态
+4. 请求体包含 `user_id`（用于持久化用户学习状态）
+5. 成功后保存 `dialogId`、`currentQuestion` 等状态
 
 ### 3. 提交回答（Submit Answer）
 1. 用户输入答案（或单选 A/B/C/D）
@@ -55,6 +56,11 @@ frontend/
 1. `useQuery` 调用 `fetchDialogSnapshot()`
 2. 请求 `GET /dialogs/{dialog_id}`
 3. `state` 显示在右侧 `pre` 区域
+
+### 5. 重置用户状态（Reset User State）
+1. 用户点击 `Reset User State` 按钮
+2. 调用 `resetUserState()` 发 `POST /users/{user_id}/reset`
+3. 前端清空当前对话状态并展示删除统计
 
 ## 每个文件该怎么看
 
@@ -97,6 +103,12 @@ frontend/
 1. 在 `types.ts` 增加请求/响应类型
 2. 在 `api/dialogApi.ts` 新增封装函数
 3. 在 `App.tsx` 用 `useMutation` 或 `useQuery` 接入
+
+### 场景 D：新增/修改用户态字段（例如 `user_id`）
+1. `App.tsx` 的 schema 与默认值同步更新
+2. `types.ts` 的 payload 类型同步更新
+3. `api/dialogApi.ts` 请求体字段同步更新
+4. 后端 `schemas.py` 与 `main.py` 同步对齐
 
 ## 代码分层约定（建议遵守）
 - `App.tsx`：页面编排 + 状态拼装
