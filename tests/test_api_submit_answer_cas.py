@@ -44,6 +44,8 @@ def _base_record() -> dict[str, Any]:
             "current_round": 0,
             "max_round": 5,
             "auto_answer_enabled": False,
+            "question_mode": "open",
+            "current_question_type": "open",
             "current_question": "Q1",
             "current_concept": "C1",
             "knowledge_graph_root": {"concepts": []},

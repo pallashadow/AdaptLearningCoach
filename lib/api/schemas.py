@@ -10,6 +10,7 @@ class StartDialogRequest(BaseModel):
     auto_answer_enabled: bool = Field(default=False)
     auto_answer_proficiency: float = Field(default=70.0, ge=0.0, le=100.0)
     question_mode: Literal["open", "choice"] = Field(default="choice")
+    choice_option_count: int = Field(default=4, ge=2, le=4)
 
 
 class StartDialogResponse(BaseModel):
@@ -44,3 +45,10 @@ class DialogSnapshot(BaseModel):
     updated_at: str
     finished: bool
     state: dict[str, Any]
+
+
+class DeleteUserDialogsResponse(BaseModel):
+    user_id: str
+    deleted_count: int
+
+

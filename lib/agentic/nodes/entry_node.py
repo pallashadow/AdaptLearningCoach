@@ -122,6 +122,27 @@ def _normalize_root_node(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _fallback_concepts_for_goal(goal: str) -> list[str]:
+    lowered = goal.lower()
+    if any(token in lowered for token in ("ml", "machine learning", "algorithm", "interview")):
+        return [
+            "Supervised Learning Bias-Variance Tradeoff",
+            "Linear and Logistic Regression",
+            "Regularization (L1/L2)",
+            "Tree Models and Gradient Boosting",
+            "Model Evaluation Metrics",
+            "Cross Validation and Data Leakage",
+            "Optimization and Gradient Descent",
+            "Neural Network Training Basics",
+        ]
+    return [
+        "Core Definitions and Problem Framing",
+        "Foundational Methods",
+        "Evaluation and Error Analysis",
+        "Practical Tradeoffs and Constraints",
+        "Real-world Application Scenarios",
+    ]
+
 async def _load_state_from_firestore(user_id: str) -> dict[str, Any] | None:
     student_state = await get_student_state_by_user_id(user_id)
     if not isinstance(student_state, dict):
@@ -188,6 +209,13 @@ async def entry_llm_node(state: AgentState) -> AgentState:
 
     if root_node is None:
         root_node = _normalize_root_node({})
+    if not root_node.get("concepts"):
+        root_node = _normalize_root_node(
+            {
+                "concepts": _fallback_concepts_for_goal(question),
+                "reasoning_pattern": "heuristic fallback from learning goal",
+            }
+        )
 
     if user_id:
         try:
@@ -203,3 +231,4 @@ async def entry_llm_node(state: AgentState) -> AgentState:
         "planned_skill_calls": [],
         "search_ops": None,
     }
+

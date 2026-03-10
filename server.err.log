@@ -1,0 +1,39 @@
+INFO:     Started server process [32316]
+INFO:     Waiting for application startup.
+ERROR:    Traceback (most recent call last):
+  File "D:\python312\Lib\site-packages\google\api_core\grpc_helpers_async.py", line 107, in _wrapped_aiter
+    async for response in self._call:  # pragma: no branch
+  File "D:\python312\Lib\site-packages\grpc\aio\_call.py", line 364, in _fetch_stream_responses
+    await self._raise_for_status()
+  File "D:\python312\Lib\site-packages\grpc\aio\_call.py", line 272, in _raise_for_status
+    raise _create_rpc_error(
+grpc.aio._call.AioRpcError: <AioRpcError of RPC that terminated with:
+	status = StatusCode.FAILED_PRECONDITION
+	details = "The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/xixibaigao/databases/(default)."
+	debug_error_string = "UNKNOWN:Error received from peer ipv4:142.250.151.95:443 {grpc_status:9, grpc_message:"The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/xixibaigao/databases/(default)."}"
+>
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\python312\Lib\site-packages\starlette\routing.py", line 694, in lifespan
+    async with self.lifespan_context(app) as maybe_state:
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\python312\Lib\contextlib.py", line 210, in __aenter__
+    return await anext(self.gen)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\PROJECT\agentic_learning\main.py", line 69, in lifespan
+    await firestore_client.collection(firestore_collection).limit(1).get()
+  File "D:\python312\Lib\site-packages\google\cloud\firestore_v1\async_query.py", line 254, in get
+    result_list = [d async for d in result]
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\python312\Lib\site-packages\google\cloud\firestore_v1\async_stream_generator.py", line 61, in __anext__
+    next_value = await self._generator.__anext__()
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\python312\Lib\site-packages\google\cloud\firestore_v1\async_query.py", line 417, in _make_stream
+    async for response in response_iterator:
+  File "D:\python312\Lib\site-packages\google\api_core\grpc_helpers_async.py", line 110, in _wrapped_aiter
+    raise exceptions.from_grpc_error(rpc_error) from rpc_error
+google.api_core.exceptions.FailedPrecondition: 400 The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/xixibaigao/databases/(default).
+
+ERROR:    Application startup failed. Exiting.

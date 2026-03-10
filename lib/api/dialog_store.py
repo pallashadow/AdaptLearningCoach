@@ -23,3 +23,15 @@ class FirestoreDialogStore:
 
     async def delete(self, dialog_id: str) -> bool:
         return await self._crud.delete(self._collection, dialog_id)
+
+    async def delete_by_user_id(self, user_id: str) -> int:
+        rows = await self._crud.list_by_field(self._collection, "state.user_id", user_id)
+        deleted_count = 0
+        for row in rows:
+            doc_id = str(row.get("_doc_id", "")).strip()
+            if not doc_id:
+                continue
+            deleted = await self._crud.delete(self._collection, doc_id)
+            if deleted:
+                deleted_count += 1
+        return deleted_count

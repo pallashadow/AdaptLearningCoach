@@ -10,6 +10,5 @@ export function parseChoiceOptionsFromQuestion(question: string): string[] {
     options.push(match[1].trim());
   }
 
-  return options.length === 4 ? options : [];
+  return options.length >= 2 && options.length <= 4 ? options : [];
 }
-

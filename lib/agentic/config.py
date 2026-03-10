@@ -33,6 +33,7 @@ class AgentState(TypedDict, total=False):
     auto_answer_enabled: bool
     auto_answer_proficiency: float
     question_mode: str
+    choice_option_count: int
     current_round: int
     current_concept: str
     current_question: str
@@ -56,3 +57,5 @@ class AgentState(TypedDict, total=False):
     answer: str
     planned_skill_calls: list[dict[str, Any]]
     search_ops: Any
+
+

@@ -33,9 +33,12 @@ export type StartDialogPayload = {
   auto_answer_enabled: boolean;
   auto_answer_proficiency: number;
   question_mode: "open" | "choice";
+  choice_option_count: 2 | 3 | 4;
 };
 
 export type SubmitAnswerPayload = {
   dialog_id: string;
   user_answer: string;
 };
+
+

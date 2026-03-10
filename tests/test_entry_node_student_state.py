@@ -82,3 +82,45 @@ def test_entry_node_initializes_missing_student_state_then_generates(monkeypatch
     assert tracker["init_called"] is True
     assert state["knowledge_graph_root"]["concepts"][0]["concept"] == "Linear Regression"
     assert tracker["saved"][0] == "u-2"
+
+def test_entry_node_falls_back_to_default_concepts_when_llm_returns_empty(monkeypatch):
+    async def _stub_get_student_state(_user_id: str):
+        return None
+
+    async def _stub_init_node(state):
+        return {
+            **state,
+            "knowledge_graph_root": {"concepts": [], "reasoning_pattern": ""},
+        }
+
+    async def _stub_save_student_state(_user_id: str, _knowledge_graph_root: dict):
+        return True
+
+    async def _stub_llm(**kwargs):
+        return {
+            "tool_calls": [
+                {
+                    "function": {
+                        "arguments": '{"concepts": [], "reasoning_pattern": ""}'
+                    }
+                }
+            ]
+        }
+
+    monkeypatch.setattr(entry_node, "get_student_state_by_user_id", _stub_get_student_state)
+    monkeypatch.setattr(entry_node, "student_state_init_node", _stub_init_node)
+    monkeypatch.setattr(entry_node, "save_student_state_by_user_id", _stub_save_student_state)
+    monkeypatch.setattr(entry_node, "call_llm_with_tools", _stub_llm)
+
+    state = _run(
+        entry_node.entry_llm_node(
+            {
+                "question": "I am preparing for an ML Algorithm Engineer interview. Please start diagnostics.",
+                "user_id": "u-3",
+            }
+        )
+    )
+
+    concepts = state["knowledge_graph_root"]["concepts"]
+    assert len(concepts) > 0
+    assert concepts[0]["concept"] == "Supervised Learning Bias-Variance Tradeoff"

@@ -1,0 +1,5 @@
+INFO:     127.0.0.1:52469 - "GET /health HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "OPTIONS /dialogs/start HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "POST /dialogs/start HTTP/1.1" 200 OK
+INFO:     127.0.0.1:53646 - "GET /dialogs/f42f0d52-0bb9-4f3c-968b-a6f6ac78d61c HTTP/1.1" 200 OK
+INFO:     127.0.0.1:61513 - "POST /dialogs/start HTTP/1.1" 200 OK

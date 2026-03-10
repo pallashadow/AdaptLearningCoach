@@ -13,6 +13,7 @@ from lib.api.schemas import (
     AnswerRequest,
     AnswerResponse,
     DialogSnapshot,
+    DeleteUserDialogsResponse,
     StartDialogRequest,
     StartDialogResponse,
 )
@@ -23,6 +24,7 @@ from lib.agentic.nodes.question_node import question_node
 from lib.agentic.nodes.ref_node import ref_node
 
 logger = logging.getLogger(__name__)
+CHOICE_LABELS = ("A", "B", "C", "D")
 
 
 def _now_iso() -> str:
@@ -113,6 +115,41 @@ def _snapshot_from_record(dialog_id: str, record: dict[str, Any]) -> DialogSnaps
     )
 
 
+def _validate_choice_question_contract(state: dict[str, Any]) -> None:
+    question_mode = str(state.get("question_mode", "choice") or "choice").strip().lower()
+    if question_mode != "choice":
+        return
+
+    question_type = str(state.get("current_question_type", "") or "").strip().lower()
+    if question_type != "choice":
+        raise ValueError(f"question_type must be 'choice' when question_mode='choice', got '{question_type or '-'}'")
+
+    raw_option_count = state.get("choice_option_count", 4)
+    try:
+        choice_option_count = int(raw_option_count)
+    except (TypeError, ValueError):
+        raise ValueError(f"choice_option_count must be an integer in [2,4], got '{raw_option_count}'")
+    if choice_option_count < 2 or choice_option_count > 4:
+        raise ValueError(f"choice_option_count must be in [2,4], got '{choice_option_count}'")
+
+    current_question = str(state.get("current_question", "") or "").strip()
+    if not current_question:
+        raise ValueError("current_question is empty")
+
+    current_options = state.get("current_options", [])
+    if not isinstance(current_options, list):
+        raise ValueError("current_options must be a list")
+    if len(current_options) != choice_option_count:
+        raise ValueError(
+            f"current_options length must equal choice_option_count ({choice_option_count}), got {len(current_options)}"
+        )
+
+    labels = CHOICE_LABELS[:choice_option_count]
+    current_correct_option = str(state.get("current_correct_option", "") or "").strip().upper()
+    if current_correct_option not in labels:
+        raise ValueError(f"current_correct_option must be one of {labels}, got '{current_correct_option or '-'}'")
+
+
 @app.get("/health")
 async def health() -> dict[str, str]:
     return {"status": "ok"}
@@ -131,11 +168,17 @@ async def start_dialog(payload: StartDialogRequest) -> StartDialogResponse:
         "auto_answer_enabled": payload.auto_answer_enabled,
         "auto_answer_proficiency": payload.auto_answer_proficiency,
         "question_mode": payload.question_mode,
+        "choice_option_count": payload.choice_option_count,
         "current_round": 0,
     }
 
     state = await entry_llm_node(initial_state)
     state = await question_node(state)
+    try:
+        _validate_choice_question_contract(state)
+    except ValueError as exc:
+        logger.error("Choice question contract failed in /dialogs/start for dialog_id=%s: %s", dialog_id, exc)
+        raise HTTPException(status_code=500, detail=f"INVALID_CHOICE_QUESTION: {exc}") from exc
 
     timestamp = _now_iso()
     record = {
@@ -187,6 +230,11 @@ async def submit_answer(payload: AnswerRequest) -> AnswerResponse:
         finished = current_round >= max_round
         if not finished:
             state = await question_node(state)
+            try:
+                _validate_choice_question_contract(state)
+            except ValueError as exc:
+                logger.error("Choice question contract failed in /dialogs/answer for dialog_id=%s: %s", payload.dialog_id, exc)
+                raise HTTPException(status_code=500, detail=f"INVALID_CHOICE_QUESTION: {exc}") from exc
 
         expected_updated_at = str(record.get("updated_at", ""))
         next_record = {
@@ -233,8 +281,25 @@ async def delete_dialog(dialog_id: str) -> dict[str, bool]:
     return {"deleted": deleted}
 
 
+
+@app.delete("/users/{user_id}/dialogs", response_model=DeleteUserDialogsResponse)
+async def delete_user_dialogs(user_id: str) -> DeleteUserDialogsResponse:
+    if store is None:
+        raise HTTPException(status_code=503, detail="Firestore store is not initialized")
+
+    normalized_user_id = user_id.strip()
+    if not normalized_user_id:
+        raise HTTPException(status_code=400, detail="user_id is required")
+
+    deleted_count = await store.delete_by_user_id(normalized_user_id)
+    return DeleteUserDialogsResponse(user_id=normalized_user_id, deleted_count=deleted_count)
+
 if __name__ == "__main__":
     import uvicorn
 
     port = int(os.getenv("PORT", "8001"))
     uvicorn.run("main:app", host="127.0.0.1", port=port, reload=True)
+
+
+
+

@@ -39,6 +39,27 @@ litellm.set_verbose = False
 
 # Create a single shared router instance to avoid callback limit issues
 _router = None
+_MODEL_ALIASES = {
+    "gpt": "openai/gpt-4o-mini",
+    "gemini": "gemini/gemini-2.0-flash-001",
+}
+
+
+def _resolve_model_name(model_name: str) -> str:
+    return _MODEL_ALIASES.get(model_name, model_name)
+
+
+def _tool_model_fallback_sequence(model_name: str) -> list[str]:
+    normalized = _resolve_model_name(model_name)
+    if normalized.startswith("openai/"):
+        return [normalized, _MODEL_ALIASES["gemini"]]
+    if normalized.startswith("gemini/"):
+        return [normalized, _MODEL_ALIASES["gpt"]]
+    if model_name == "gpt":
+        return [_MODEL_ALIASES["gpt"], _MODEL_ALIASES["gemini"]]
+    if model_name == "gemini":
+        return [_MODEL_ALIASES["gemini"], _MODEL_ALIASES["gpt"]]
+    return [normalized]
 
 def get_litellm_fallback_router():
     """Get or create a shared router instance"""
@@ -92,7 +113,6 @@ async def call_llm(str1,
                    response_format=None, 
                    kwargs: dict | None = None):
     start_time = time.time()
-    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -165,7 +185,6 @@ async def call_llm_stream(str1,
         str: Content chunks from the LLM stream
     """
     start_time = time.time()
-    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -283,7 +302,6 @@ async def call_llm_with_tools(
         dict: Contains 'content' and 'tool_calls' (if any)
     """
     start_time = time.time()
-    kwargs = kwargs or {}
     
     # Add metadata if LangSmith is enabled
     if langsmith_enabled():
@@ -296,18 +314,30 @@ async def call_llm_with_tools(
         except Exception:
             pass
     
-    router = get_litellm_fallback_router()
-    
     messages = [{"role": "user", "content": prompt}]
-    
-    # LiteLLM automatically handles tools parameter
-    response = await router.acompletion(
-        model=model_name,
-        messages=messages,
-        tools=tools,
-        tool_choice=tool_choice,
-        temperature=0.0
-    )
+
+    response = None
+    last_error = None
+    for candidate_model in _tool_model_fallback_sequence(model_name):
+        try:
+            response = await acompletion(
+                model=candidate_model,
+                messages=messages,
+                tools=tools,
+                tool_choice=tool_choice,
+                temperature=0.0,
+            )
+            break
+        except Exception as exc:
+            last_error = exc
+            logging.warning(
+                "Tool call failed on model %s, trying fallback if available: %s",
+                candidate_model,
+                exc,
+            )
+
+    if response is None:
+        raise RuntimeError(f"Tool call failed for all candidate models: {last_error}") from last_error
     
     latency = time.time() - start_time
     

@@ -20,10 +20,30 @@ const githubDocPaths = [
   "lib/agentic/prompts/entry_node_user.yaml"
 ] as const;
 
+type UIQuestionMode = "choice_2" | "choice_3" | "choice_4" | "open";
+
+type BackendQuestionMode = "open" | "choice";
+
+function parseUiQuestionMode(mode: UIQuestionMode): {
+  questionMode: BackendQuestionMode;
+  choiceOptionCount: 2 | 3 | 4;
+} {
+  if (mode === "open") {
+    return { questionMode: "open", choiceOptionCount: 4 };
+  }
+  if (mode === "choice_2") {
+    return { questionMode: "choice", choiceOptionCount: 2 };
+  }
+  if (mode === "choice_3") {
+    return { questionMode: "choice", choiceOptionCount: 3 };
+  }
+  return { questionMode: "choice", choiceOptionCount: 4 };
+}
+
 const startSchema = z.object({
   backendUrl: z.string().url(),
   question: z.string().min(1, "Learning Goal is required."),
-  question_mode: z.enum(["choice", "open"]),
+  question_mode: z.enum(["choice_2", "choice_3", "choice_4", "open"]),
   auto_answer_enabled: z.boolean(),
   max_round: z.number().int().min(1).max(20),
   auto_answer_proficiency: z.number().int().min(0).max(100)
@@ -37,9 +57,10 @@ type StartFormValues = z.infer<typeof startSchema>;
 type AnswerFormValues = z.infer<typeof answerSchema>;
 type HelpPopover = "maxRound" | "proficiency" | null;
 
-function defaultChoiceOptions(): string[] {
-  return ["Option A", "Option B", "Option C", "Option D"];
+function optionLabels(optionCount: number): string[] {
+  return ["A", "B", "C", "D"].slice(0, Math.max(2, Math.min(4, optionCount)));
 }
+
 
 function escapeHtml(value: string): string {
   return value
@@ -62,7 +83,8 @@ function buildGithubDocLinks(): string {
 export default function App() {
   const [dialogId, setDialogId] = useState("");
   const [finished, setFinished] = useState(false);
-  const [currentQuestionMode, setCurrentQuestionMode] = useState<"open" | "choice">("choice");
+  const [currentQuestionMode, setCurrentQuestionMode] = useState<BackendQuestionMode>("choice");
+  const [currentChoiceOptionCount, setCurrentChoiceOptionCount] = useState<2 | 3 | 4>(4);
   const [currentDialogAutoAnswer, setCurrentDialogAutoAnswer] = useState(false);
   const [activeDialogBaseUrl, setActiveDialogBaseUrl] = useState("");
   const [resultText, setResultText] = useState("No active dialog.");
@@ -79,7 +101,7 @@ export default function App() {
       backendUrl: "http://127.0.0.1:8001",
       question:
         "I am preparing for an ML Algorithm Engineer interview. Please start diagnostics.",
-      question_mode: "choice",
+      question_mode: "choice_4",
       auto_answer_enabled: false,
       max_round: 5,
       auto_answer_proficiency: 60
@@ -127,18 +149,22 @@ export default function App() {
 
   const startMutation = useMutation({
     mutationFn: async (values: StartFormValues) => {
+      const parsedMode = parseUiQuestionMode(values.question_mode as UIQuestionMode);
       return startDialog(values.backendUrl, {
         question: values.question.trim(),
         max_round: values.max_round,
         auto_answer_enabled: values.auto_answer_enabled,
         auto_answer_proficiency: values.auto_answer_proficiency,
-        question_mode: values.question_mode
+        question_mode: parsedMode.questionMode,
+        choice_option_count: parsedMode.choiceOptionCount
       });
     },
-    onSuccess: async (data: StartDialogResponse, values: StartFormValues) => {
+    onSuccess: (data: StartDialogResponse, values: StartFormValues) => {
+      const parsedMode = parseUiQuestionMode(values.question_mode as UIQuestionMode);
       setDialogId(data.dialog_id);
       setFinished(false);
-      setCurrentQuestionMode(values.question_mode);
+      setCurrentQuestionMode(parsedMode.questionMode);
+      setCurrentChoiceOptionCount(parsedMode.choiceOptionCount);
       setCurrentDialogAutoAnswer(values.auto_answer_enabled);
       setActiveDialogBaseUrl(values.backendUrl.trim().replace(/\/+$/, ""));
       setCurrentQuestion(data.current_question);
@@ -154,7 +180,6 @@ export default function App() {
           2
         )}`
       );
-
     },
     onError: (error) => {
       setActiveDialogBaseUrl("");
@@ -166,6 +191,9 @@ export default function App() {
     mutationFn: async (values: AnswerFormValues) => {
       const userAnswer =
         currentQuestionMode === "choice" ? selectedChoice : values.user_answer?.trim() ?? "";
+      const parsedChoiceOptions = parseChoiceOptionsFromQuestion(currentQuestion);
+      const hasValidChoiceQuestion =
+        parsedChoiceOptions.length >= 2 && parsedChoiceOptions.length <= 4;
 
       if (!currentDialogAutoAnswer && !userAnswer) {
         throw new Error(
@@ -174,13 +202,18 @@ export default function App() {
             : "Please input your answer first."
         );
       }
+      if (currentQuestionMode === "choice" && !hasValidChoiceQuestion) {
+        throw new Error(
+          "Current question is invalid (failed to parse options). This question cannot be answered. Please restart dialog."
+        );
+      }
 
       return submitAnswer(activeDialogBaseUrl || normalizedBaseUrl, {
         dialog_id: dialogId,
         user_answer: userAnswer
       });
     },
-    onSuccess: async (data: AnswerResponse) => {
+    onSuccess: (data: AnswerResponse) => {
       setFinished(data.finished);
       setCurrentRound(data.current_round);
       setMaxRound(data.max_round);
@@ -194,7 +227,6 @@ export default function App() {
           data.last_ground_truth
         }\n\n${data.finished ? "Dialog finished." : `Next question:\n${data.current_question}`}`
       );
-
     },
     onError: (error) => {
       const rawError = String(error);
@@ -207,16 +239,26 @@ export default function App() {
     }
   });
 
-  const choiceOptions = useMemo(() => {
-    const parsed = parseChoiceOptionsFromQuestion(currentQuestion);
-    return parsed.length === 4 ? parsed : defaultChoiceOptions();
-  }, [currentQuestion]);
+  const parsedChoiceOptions = useMemo(
+    () => parseChoiceOptionsFromQuestion(currentQuestion),
+    [currentQuestion]
+  );
+  const hasValidChoiceQuestion =
+    parsedChoiceOptions.length >= 2 &&
+    parsedChoiceOptions.length <= 4 &&
+    parsedChoiceOptions.length === currentChoiceOptionCount;
+  const choiceOptions = hasValidChoiceQuestion ? parsedChoiceOptions : [];
+
+  const choiceLabels = useMemo(() => optionLabels(choiceOptions.length), [choiceOptions.length]);
 
   const dialogMeta = dialogId
     ? `dialog_id=${dialogId} | round=${currentRound}/${maxRound} | concept=${currentConcept || "-"}`
     : "No active dialog.";
 
-  const isChoiceMode = dialogId ? currentQuestionMode === "choice" : startForm.watch("question_mode") === "choice";
+  const watchedUiMode = startForm.watch("question_mode") as UIQuestionMode;
+  const isChoiceMode = dialogId
+    ? currentQuestionMode === "choice"
+    : parseUiQuestionMode(watchedUiMode).questionMode === "choice";
 
   return (
     <div className="layout">
@@ -242,7 +284,9 @@ export default function App() {
               <label className="compact-field" htmlFor="questionMode">
                 <span>Question Mode</span>
                 <select id="questionMode" {...startForm.register("question_mode")}>
-                  <option value="choice">Single Choice</option>
+                  <option value="choice_2">Single Choice (2 options)</option>
+                  <option value="choice_3">Single Choice (3 options)</option>
+                  <option value="choice_4">Single Choice (4 options)</option>
                   <option value="open">Open-ended</option>
                 </select>
               </label>
@@ -353,24 +397,31 @@ export default function App() {
           ) : (
             <div className="row">
               <label>Select exactly one option</label>
-              <div className="choice-options">
-                {choiceOptions.map((text, idx) => {
-                  const label = ["A", "B", "C", "D"][idx] ?? "";
-                  return (
-                    <label key={label} className="radio-option">
-                      <input
-                        type="radio"
-                        name="choiceAnswer"
-                        value={label}
-                        checked={selectedChoice === label}
-                        disabled={currentDialogAutoAnswer}
-                        onChange={(event) => setSelectedChoice(event.target.value)}
-                      />
-                      <span dangerouslySetInnerHTML={{ __html: `<strong>${label}.</strong> ${escapeHtml(text)}` }} />
-                    </label>
-                  );
-                })}
-              </div>
+              {!hasValidChoiceQuestion ? (
+                <div className="result">
+                  Failed to render question options. Backend returned an invalid choice question.
+                  Please restart dialog.
+                </div>
+              ) : (
+                <div className="choice-options">
+                  {choiceOptions.map((text, idx) => {
+                    const label = choiceLabels[idx] ?? "";
+                    return (
+                      <label key={label} className="radio-option">
+                        <input
+                          type="radio"
+                          name="choiceAnswer"
+                          value={label}
+                          checked={selectedChoice === label}
+                          disabled={currentDialogAutoAnswer}
+                          onChange={(event) => setSelectedChoice(event.target.value)}
+                        />
+                        <span dangerouslySetInnerHTML={{ __html: `<strong>${label}.</strong> ${escapeHtml(text)}` }} />
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
 

@@ -6,7 +6,17 @@ from lib.agentic.config import AgentState
 from lib.llm.litellm_api import call_llm_with_tools
 
 logger = logging.getLogger(__name__)
-OPTION_LABELS = ("A", "B", "C", "D")
+MAX_OPTION_LABELS = ("A", "B", "C", "D")
+
+
+def _option_labels_from_state(state: AgentState) -> tuple[str, ...]:
+    current_options_raw = state.get("current_options", [])
+    current_options = current_options_raw if isinstance(current_options_raw, list) else []
+    option_count = len(current_options)
+    if option_count < 2:
+        option_count = int(state.get("choice_option_count", 4) or 4)
+    option_count = max(2, min(4, option_count))
+    return MAX_OPTION_LABELS[:option_count]
 
 
 def _build_auto_answer_tools() -> list[dict[str, Any]]:
@@ -63,14 +73,23 @@ async def auto_answer_node(state: AgentState) -> AgentState:
             "user_answer": "",
             "answer": "Missing current_question.",
         }
+
     current_question_type = str(state.get("current_question_type", "open") or "open").strip().lower()
     if current_question_type == "choice":
         auto_answer_proficiency = float(state.get("auto_answer_proficiency", 70.0) or 70.0)
         auto_answer_proficiency = max(0.0, min(100.0, auto_answer_proficiency))
+        option_labels = _option_labels_from_state(state)
+
         correct_option = str(state.get("current_correct_option", "") or "").strip().upper()
-        if correct_option not in OPTION_LABELS:
-            correct_option = "A"
-        auto_answer = correct_option if auto_answer_proficiency >= 50 else "B" if correct_option != "B" else "C"
+        if correct_option not in option_labels:
+            correct_option = option_labels[0]
+
+        if auto_answer_proficiency >= 50:
+            auto_answer = correct_option
+        else:
+            wrong_candidates = [label for label in option_labels if label != correct_option]
+            auto_answer = wrong_candidates[0] if wrong_candidates else correct_option
+
         return {
             **state,
             "user_answer": auto_answer,
