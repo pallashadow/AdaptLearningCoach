@@ -6,7 +6,7 @@ import { z } from "zod";
 
 import { fetchDialogSnapshot, resetUserState, startDialog, submitAnswer } from "./api/dialogApi";
 import type { AnswerResponse, StartDialogResponse } from "./types";
-import { parseChoiceOptionsFromQuestion } from "./utils/choice";
+import { extractChoiceStemFromQuestion, parseChoiceOptionsFromQuestion } from "./utils/choice";
 
 const GITHUB_REPO_URL = "https://github.com/pallashadow/AdaptLearningCoach";
 
@@ -270,6 +270,10 @@ export default function App() {
     () => parseChoiceOptionsFromQuestion(currentQuestion),
     [currentQuestion]
   );
+  const choiceQuestionStem = useMemo(
+    () => extractChoiceStemFromQuestion(currentQuestion),
+    [currentQuestion]
+  );
   const hasValidChoiceQuestion =
     parsedChoiceOptions.length >= 2 &&
     parsedChoiceOptions.length <= 4 &&
@@ -461,6 +465,7 @@ export default function App() {
             </div>
           ) : (
             <div className="row">
+              <div className="question-stem">{choiceQuestionStem}</div>
               <label>Select exactly one option</label>
               {!hasValidChoiceQuestion ? (
                 <div className="result">

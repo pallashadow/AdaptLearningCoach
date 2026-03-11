@@ -181,6 +181,14 @@ input[type="radio"] {
   gap: 0.5rem;
 }
 
+.question-stem {
+  margin-bottom: 0.55rem;
+  white-space: pre-wrap;
+  color: #111827;
+  font-size: 0.96rem;
+  line-height: 1.45;
+}
+
 .radio-option {
   display: flex;
   align-items: flex-start;

@@ -96,6 +96,28 @@ Use this exact loop to reduce debugging cost:
 3) Run one smoke API case for `/dialogs/start` and verify contract.
 4) If failed, fix one root cause only, then repeat from step 1.
 
+## Offline Self-Test Loop (No Service Startup)
+Use this loop when you need fast backend logic feedback without starting FastAPI/frontend.
+
+Allowed scope:
+- Node-level diagnosis flow (`entry_llm_node` -> `question_node` -> `auto_answer_node/ref_node`)
+- State transition checks (`current_round`, `qa_history`, `familiarity`, `max_round`)
+- Choice contract preflight validation
+
+Required command (from project root):
+- `& '.\.venv\Scripts\python.exe' scripts/offline_self_test.py --goal "ML interview prep" --max-round 5 --proficiency 70`
+
+Expected result:
+- JSON output includes per-round records, final round, final feedback, and updated `knowledge_graph_root`.
+- Fails explicitly on invalid choice contract; do not mask with fake fallback options.
+
+Mandatory regression tests when touching offline loop/question flow:
+- `& '.\.venv\Scripts\python.exe' -m pytest tests/test_offline_loop.py -q`
+- `& '.\.venv\Scripts\python.exe' -m pytest tests/test_api_start_dialog_contract.py -q`
+
+When to use Local Dev instead:
+- Any change involving API routes, CORS, persistence wiring, or frontend rendering must still run the normal Local Dev loop.
+
 ## Local Dev Startup (Terminology)
 - Starting frontend + backend together for local debugging is called:
   - `Local Dev` / `本地联调`

@@ -124,3 +124,20 @@ def test_entry_node_falls_back_to_default_concepts_when_llm_returns_empty(monkey
     concepts = state["knowledge_graph_root"]["concepts"]
     assert len(concepts) > 0
     assert concepts[0]["concept"] == "Supervised Learning Bias-Variance Tradeoff"
+
+
+def test_entry_node_normalizes_familiarity_with_fixed_five_window():
+    normalized = entry_node._normalize_concept_item(
+        {
+            "concept": "Backpropagation",
+            "qa_history": [
+                {"question": "q1", "answer": "a1", "score": 100},
+                {"question": "q2", "answer": "a2", "score": 100},
+                {"question": "q3", "answer": "a3", "score": 100},
+            ],
+        }
+    )
+
+    assert normalized is not None
+    assert normalized["posterior_question_count"] == 3
+    assert float(normalized["familiarity"]) == 60.0

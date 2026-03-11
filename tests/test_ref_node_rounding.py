@@ -76,3 +76,21 @@ def test_missing_answer_main_question_increments_round():
 
     assert updated["current_round"] == 3
     assert updated["current_feedback"] == "Missing user_answer."
+
+
+def test_ref_node_adds_concept_when_current_concept_missing_in_root():
+    state = {
+        **BASE_STATE,
+        "current_concept": "New Concept",
+        "is_followup": False,
+        "user_answer": "A",
+    }
+
+    updated = _run(ref_node(state))
+
+    concepts = updated["knowledge_graph_root"]["concepts"]
+    concept_names = [str(item.get("concept", "")) for item in concepts]
+    assert "New Concept" in concept_names
+    new_concept = next(item for item in concepts if item.get("concept") == "New Concept")
+    assert int(new_concept.get("posterior_question_count", 0)) == 1
+    assert len(new_concept.get("qa_history", [])) == 1

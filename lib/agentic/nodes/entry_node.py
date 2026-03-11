@@ -59,8 +59,10 @@ def _normalize_qa_history(raw: Any) -> list[dict[str, Any]]:
 def _compute_familiarity_from_history(history: list[dict[str, Any]]) -> float:
     if not history:
         return 0.0
-    avg_score = sum(float(item["score"]) for item in history) / len(history)
-    return round(avg_score, 2)
+    recent_five = history[-5:]
+    total_score = sum(_normalize_score(item.get("score", 0.0)) for item in recent_five)
+    familiarity = total_score / 5.0
+    return round(max(0.0, min(100.0, familiarity)), 2)
 
 
 def _normalize_concept_item(raw: Any) -> dict[str, Any] | None:

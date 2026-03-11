@@ -188,9 +188,10 @@ def _update_concept_with_qa(
     current_question: str,
     user_answer: str,
     score: float,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     updated: list[dict[str, Any]] = []
     concept_key = current_concept.strip().lower()
+    matched = False
 
     for item in concepts:
         cloned = dict(item)
@@ -216,7 +217,25 @@ def _update_concept_with_qa(
         cloned["posterior_question_count"] = len(qa_history)
         cloned["familiarity"] = _compute_familiarity(qa_history)
         updated.append(cloned)
-    return updated
+        matched = True
+
+    if not matched and current_concept.strip():
+        new_history = [
+            {
+                "question": current_question,
+                "answer": user_answer,
+                "score": score,
+            }
+        ]
+        updated.append(
+            {
+                "concept": current_concept.strip(),
+                "qa_history": new_history,
+                "posterior_question_count": len(new_history),
+                "familiarity": _compute_familiarity(new_history),
+            }
+        )
+    return updated, (not matched and bool(current_concept.strip()))
 
 
 async def ref_node(state: AgentState) -> AgentState:
@@ -306,13 +325,21 @@ async def ref_node(state: AgentState) -> AgentState:
     concepts = root.get("concepts", [])
     if not isinstance(concepts, list):
         concepts = []
-    root["concepts"] = _update_concept_with_qa(
+    updated_concepts, concept_inserted = _update_concept_with_qa(
         concepts=concepts,
         current_concept=current_concept,
         current_question=current_question,
         user_answer=user_answer,
         score=score,
     )
+    root["concepts"] = updated_concepts
+    if concept_inserted:
+        logger.warning(
+            "concept auto-inserted during ref_node update; user_id=%s current_round=%s concept=%s",
+            str(state.get("user_id", "")).strip() or "-",
+            current_round,
+            current_concept,
+        )
 
     pending_sub_questions = _normalize_sub_questions(state.get("pending_sub_questions", []))
     updated_parent_question = parent_question

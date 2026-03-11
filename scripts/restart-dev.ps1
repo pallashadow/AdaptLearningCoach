@@ -12,16 +12,25 @@ function Stop-ByPort {
   param([int[]]$Ports)
 
   foreach ($port in $Ports) {
-    $lines = netstat -ano | Select-String ":$port\s+.*LISTENING"
-    foreach ($line in $lines) {
-      $parts = ($line.ToString() -split "\s+") | Where-Object { $_ -ne "" }
-      if ($parts.Count -lt 5) {
-        continue
+    for ($attempt = 0; $attempt -lt 3; $attempt++) {
+      $procIds = netstat -ano |
+        Select-String ":$port\s+.*LISTENING" |
+        ForEach-Object {
+          $parts = ($_.ToString() -split "\s+") | Where-Object { $_ -ne "" }
+          if ($parts.Count -ge 5) { $parts[-1] } else { $null }
+        } |
+        Where-Object { $_ -match "^\d+$" } |
+        Sort-Object -Unique
+
+      if (-not $procIds -or $procIds.Count -eq 0) {
+        break
       }
-      $procId = $parts[-1]
-      if ($procId -match "^\d+$") {
+
+      foreach ($procId in $procIds) {
         cmd /c "taskkill /PID $procId /F" | Out-Null
       }
+
+      Start-Sleep -Milliseconds 150
     }
   }
 }
@@ -47,15 +56,43 @@ function Stop-ByProcessPattern {
   }
 }
 
+function Test-PortListening {
+  param([int]$Port)
+
+  $line = netstat -ano | Select-String ":$Port\s+.*LISTENING" | Select-Object -First 1
+  return $null -ne $line
+}
+
+function Wait-ForPortListening {
+  param(
+    [int]$Port,
+    [int]$TimeoutMs = 8000,
+    [int]$PollIntervalMs = 200
+  )
+
+  $deadline = (Get-Date).AddMilliseconds($TimeoutMs)
+  while ((Get-Date) -lt $deadline) {
+    if (Test-PortListening -Port $Port) {
+      return $true
+    }
+    Start-Sleep -Milliseconds $PollIntervalMs
+  }
+  return $false
+}
+
 Stop-ByPort -Ports @(8001, 5173, 5174, 5175)
 Stop-ByProcessPattern -RepoRootPath $repoRoot
-Start-Sleep -Seconds 1
 
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
-$backendOut = Join-Path $repoRoot "uvicorn.out.$timestamp.log"
-$backendErr = Join-Path $repoRoot "uvicorn.err.$timestamp.log"
-$frontendOut = Join-Path $repoRoot "frontend\vite.out.$timestamp.log"
-$frontendErr = Join-Path $repoRoot "frontend\vite.err.$timestamp.log"
+$logsDir = Join-Path $repoRoot "logs"
+if (-not (Test-Path $logsDir)) {
+  New-Item -ItemType Directory -Path $logsDir | Out-Null
+}
+
+$backendOut = Join-Path $logsDir "uvicorn.out.$timestamp.log"
+$backendErr = Join-Path $logsDir "uvicorn.err.$timestamp.log"
+$frontendOut = Join-Path $logsDir "vite.out.$timestamp.log"
+$frontendErr = Join-Path $logsDir "vite.err.$timestamp.log"
 
 $backendProc = Start-Process `
   -FilePath $pythonPath `
@@ -73,12 +110,15 @@ $frontendProc = Start-Process `
   -RedirectStandardError $frontendErr `
   -PassThru
 
-Start-Sleep -Seconds 3
+$backendReady = Wait-ForPortListening -Port 8001
+$frontendReady = Wait-ForPortListening -Port 5173
 
 Write-Output "Backend PID: $($backendProc.Id)"
 Write-Output "Frontend PID: $($frontendProc.Id)"
 Write-Output "Backend URL: http://127.0.0.1:8001"
 Write-Output "Frontend URL: http://127.0.0.1:5173"
+Write-Output "Backend Ready: $backendReady"
+Write-Output "Frontend Ready: $frontendReady"
 Write-Output "Logs:"
 Write-Output "  $backendOut"
 Write-Output "  $backendErr"
